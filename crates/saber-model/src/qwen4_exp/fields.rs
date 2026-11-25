@@ -165,7 +165,7 @@ impl<'a> Fields<'a> {
         for k in self.obj.keys() {
             if !self.taken.contains(&k.as_str()) {
                 return Err(err(format!(
-                    "{}: unknown field (not read by the qwen4_exp config; name it or refuse the \
+                    "{}: unknown field (not read by the model config; name it or refuse the \
                      checkpoint)",
                     self.key_path(k)
                 )));

@@ -92,6 +92,13 @@ LAYOUT_MXFP4_ROW_REF = 3
 LAYOUT_MXFP4_WPERM_MERGED = 4
 LAYOUT_F32_FROM_BF16 = 5
 LAYOUT_BF16_MERGED = 6
+LAYOUT_FP8_PRESHUFFLE = 7
+LAYOUT_FP8_BLOCK_SCALE = 8
+LAYOUT_INT2_HEAD = 9
+LAYOUT_INT2_HEAD_SCALE = 10
+LAYOUT_INT2_HEAD_ZERO = 11
+LAYOUT_BF16_FROM_FP8_BLOCK = 12
+LAYOUT_ROPE_COS_SIN = 13
 LAYOUT_BF16_FROM_FP8_CHANNEL = 14
 LAYOUT_FP8_CHANNEL = 15
 LAYOUT_F32_CHANNEL_SCALE = 16
@@ -119,6 +126,22 @@ TIER_EXTRAS = ["config.json", "chat_template.jinja", "tokenizer.json", "generati
 
 # the SBRPACK1 format § "TP shard policy": every checkpoint tensor matches exactly one rule.
 SHARD_POLICY = [
+    (r"^model\.embed_tokens\.weight$", "Dim0", "Ripple vocab parallel"),
+    (r"^model\.norm\.weight$", "Replicated", "Ripple final norm"),
+    (r"^model\.layers\.\d+\.(input_layernorm|post_attention_layernorm|post_attn_norm|post_ffn_norm|post_self_attn_layernorm|post_mlp_layernorm|pre_feedforward_layernorm|post_feedforward_layernorm)\.weight$",
+     "Replicated", "Ripple/Kolibri PeriNorm"),
+    (r"^model\.layers\.\d+\.self_attn\.[qk]_norm\.weight$", "Replicated", "Ripple/Kolibri per-head norm"),
+    (r"^model\.layers\.\d+\.self_attn\.value_res_lambda$", "Replicated", "Ripple value residual"),
+    (r"^model\.layers\.\d+\.self_attn\.[qgkv]_proj\.weight(_scale_inv)?$", "Dim0", "column parallel"),
+    (r"^model\.layers\.\d+\.self_attn\.o_proj\.weight(_scale_inv)?$", "Dim1", "row parallel"),
+    (r"^model\.layers\.\d+\.mlp\.(gate|up)_proj\.(weight|weight_scale)$", "Dim0", "Ripple MLP"),
+    (r"^model\.layers\.\d+\.mlp\.down_proj\.(weight|weight_scale)$", "Dim1", "Ripple MLP"),
+    (r"^model\.layers\.\d+\.mlp\.\w+\.(input_scale|weight_scale_2)$", "Replicated", "ModelOpt scalar"),
+    (r"^model\.layers\.\d+\.(mlp\.gate\.weight|moe\.router\.expert_bias)$", "Replicated", "Kolibri router"),
+    (r"^model\.layers\.\d+\.mlp\.(shared_experts|experts\.\d+)\.(gate|up)_proj\.weight(_scale_inv)?$",
+     "Dim0", "Kolibri expert column parallel"),
+    (r"^model\.layers\.\d+\.mlp\.(shared_experts|experts\.\d+)\.down_proj\.weight(_scale_inv)?$",
+     "Dim1", "Kolibri expert row parallel"),
     (r"^model\.language_model\.embed_tokens\.weight$", "Dim0", "vocab parallel"),
     (r"^lm_head\.weight$", "Dim0", "vocab parallel"),
     (r"^lm_head\.weight_scale$", "Dim0", "per output row"),
@@ -173,6 +196,18 @@ SHARD_POLICY = [
     (r"mtp\.layers\.\d+\.self_attn\.o_proj\.weight$", "Dim1", ""),
     (r"mtp\.layers\.\d+\.mlp\.(gate|up)_proj\.weight$", "Dim0", ""),
     (r"mtp\.layers\.\d+\.mlp\.down_proj\.weight$", "Dim1", ""),
+    (r"^layers\.\d+\.(input_layernorm|post_attention_layernorm)\.weight$", "Replicated",
+     "standalone DFlash2 drafter"),
+    (r"^layers\.\d+\.self_attn\.[qk]_norm\.weight$", "Replicated", "DFlash2 per-head norm"),
+    (r"^layers\.\d+\.self_attn\.[qkv]_proj\.weight(_scale_inv)?$", "Dim0", "DFlash2 column parallel"),
+    (r"^layers\.\d+\.self_attn\.o_proj\.weight(_scale_inv)?$", "Dim1", "DFlash2 row parallel"),
+    (r"^layers\.\d+\.mlp\.(gate|up)_proj\.weight(_scale_inv)?$", "Dim0", "DFlash2 MLP"),
+    (r"^layers\.\d+\.mlp\.down_proj\.weight(_scale_inv)?$", "Dim1", "DFlash2 MLP"),
+    (r"^layers\.\d+\.(attention_conv|mlp_conv)\.(kernel_projection\.weight|base_kernel)$",
+     "Replicated", "DFlash2 dynamic convolution"),
+    (r"^candidate_selector\.(hidden_projection\.weight|predecessor_codebook|successor_codebook)$",
+     "Replicated", "DFlash2 selector"),
+    (r"^(fc|hidden_norm|norm)\.weight$", "Replicated", "DFlash2 globals"),
 ]
 _POLICY_RE = [(re.compile(p), k) for p, k, _ in SHARD_POLICY]
 
@@ -697,7 +732,7 @@ def dequant_rows(src: dict, kind: str, r0: int, r1: int, rank: int, tp: int) -> 
     T = _G["tensors"]
     w = T[src["weight"]]
     q = src["quant"]
-    if q == "nvfp4":
+    if q in ("nvfp4", "nvfp4_modelopt"):
         k = w.shape[1] * 2
         c0, c1 = col_range(w.name, kind, k, rank, tp, 32)
         p = read_rows(w, r0, r1)[:, c0 // 2:c1 // 2]
@@ -707,7 +742,8 @@ def dequant_rows(src: dict, kind: str, r0: int, r1: int, rank: int, tp: int) -> 
         codes = np.empty((r1 - r0, c1 - c0), np.uint8)
         codes[:, 0::2] = p & 0xF
         codes[:, 1::2] = p >> 4
-        bs = (E4M3[s] / gs).astype(F32)
+        # Compressed-tensors stores a reciprocal global scale; raw ModelOpt stores the multiplier.
+        bs = (E4M3[s] / gs if q == "nvfp4" else E4M3[s] * gs).astype(F32)
         x = FP4_VALUES[codes].reshape(r1 - r0, -1, 16) * bs[..., None]
         return x.reshape(r1 - r0, c1 - c0)
     if q == "mxfp4_ocp":
@@ -728,6 +764,15 @@ def dequant_rows(src: dict, kind: str, r0: int, r1: int, rank: int, tp: int) -> 
         bs = np.ldexp(F32(1), s.astype(np.int32) - 127).astype(F32)
         x = FP4_VALUES[codes].reshape(r1 - r0, -1, MX_BLOCK) * bs[..., None]
         return x.reshape(r1 - r0, c1 - c0)
+    if q == "fp8_block":
+        if r0 % 128 or r1 % 128:
+            raise SystemExit(f"{w.name}: FP8 block dequant rows must align to 128")
+        k = w.shape[1]
+        c0, c1 = col_range(w.name, kind, k, rank, tp, 128)
+        codes = read_rows(w, r0, r1)[:, c0:c1]
+        scales = read_rows(T[src["scale"]], r0 // 128, r1 // 128)[:, c0 // 128:c1 // 128]
+        values = np.repeat(np.repeat(scales, 128, axis=0), 128, axis=1)
+        return E4M3[codes] * values
     if q == "fp8_channel":
         c0, c1 = col_range(w.name, kind, w.shape[1], rank, tp, 32)
         s = bf16_to_f32(read_rows(T[src["scale"]], r0, r1).reshape(r1 - r0, 1))
@@ -784,6 +829,93 @@ def mxfp4_trio(group: dict, rank: int, tp: int) -> dict:
     return out
 
 
+def f32_to_e4m3(x: np.ndarray) -> np.ndarray:
+    """OCP e4m3 round-to-nearest-even, saturating finite inputs at 448."""
+    sign = np.signbit(x)
+    magnitude = np.minimum(np.abs(x).astype(F32), F32(448))
+    values = E4M3[:127]
+    hi = np.searchsorted(values, magnitude, side="left").clip(0, 126)
+    lo = np.maximum(hi - 1, 0)
+    dlo = magnitude - values[lo]
+    dhi = values[hi] - magnitude
+    choose_hi = (dhi < dlo) | ((dhi == dlo) & ((lo & 1) == 1))
+    code = np.where(choose_hi, hi, lo).astype(np.uint8)
+    return code | (sign.astype(np.uint8) << 7)
+
+
+def fp8_preshuffle(codes: np.ndarray) -> np.ndarray:
+    n, k = codes.shape
+    return np.ascontiguousarray(
+        codes.reshape(n // 16, 16, k // 16, 16).transpose(0, 2, 1, 3)
+    ).reshape(n // 16, k * 16)
+
+
+def fp8_pair(group: dict, rank: int, tp: int) -> dict:
+    """BF16 or block-FP8 sources -> one preshuffled code matrix and its 128x128 scales."""
+    wrec = group["w"]
+    n, k = wrec["shape"][0] * 16, wrec["shape"][1] // 16
+    kind = wrec["shard_kind"]
+    tensors = _G["tensors"]
+    codes = np.empty((n, k), np.uint8)
+    scales = np.empty((n // 128, k // 128), F32)
+    row = 0
+    multi = len(wrec["sources"]) > 1
+    for src in wrec["sources"]:
+        name = src["weight"]
+        skind = policy_kind(name) if multi else kind
+        for a, b in row_pieces(name, skind, tensors[name].shape[0], rank, tp):
+            if a % 128 or b % 128:
+                raise SystemExit(f"{name}: FP8 block rows do not align to 128")
+            for r0 in range(a, b, 128):
+                r1 = r0 + 128
+                x = dequant_rows(src, skind, r0, r1, rank, tp)
+                if x.shape != (128, k):
+                    raise SystemExit(f"{wrec['name']}: {name} gives {x.shape}, want (128, {k})")
+                blocks = x.reshape(128, k // 128, 128)
+                amax = np.abs(blocks).max(axis=(0, 2))
+                scale = np.where(amax > 0, amax / F32(448), F32(1)).astype(F32)
+                for kb in range(k // 128):
+                    codes[row:row + 128, kb * 128:(kb + 1) * 128] = f32_to_e4m3(
+                        blocks[:, kb, :] / scale[kb]
+                    )
+                scales[row // 128] = scale
+                row += 128
+    if row != n:
+        raise SystemExit(f"{wrec['name']}: sources give {row} rows, plan {n}")
+    return {"w": fp8_preshuffle(codes).tobytes(), "ws": scales.tobytes()}
+
+
+def int2_head_pieces(rec: dict, rank: int, tp: int):
+    from drafter_head_pair import int2_rows
+
+    source = rec["sources"][0]
+    tensor = _G["tensors"][source["weight"]]
+    role = rec["name"].rsplit(".", 1)[-1]
+    role_index = {"wq": 0, "s": 1, "zs": 2}[role]
+    logical_k = tensor.shape[1]
+    for r0, r1 in row_pieces(tensor.name, rec["shard_kind"], tensor.shape[0], rank, tp):
+        for a in range(r0, r1, 256):
+            b = min(r1, a + 256)
+            x = dequant_rows(source, rec["shard_kind"], a, b, rank, tp)
+            w16 = f32_to_bf16(x).reshape(b - a, logical_k)
+            yield int2_rows(w16)[role_index].tobytes()
+
+
+def rope_cos_sin(rec: dict) -> bytes:
+    params = rec["params"]
+    rotary = int(params["rotary_dim"])
+    positions = int(params["max_pos"])
+    theta = float(params["theta"])
+    exponent = (np.arange(0, rotary, 2, dtype=F32) / F32(rotary)).astype(np.float64)
+    inv = (F32(1) / np.power(theta, exponent).astype(F32)).astype(F32)
+    out = np.empty((positions, rotary), np.uint16)
+    for position in range(positions):
+        frequency = (F32(position) * inv).astype(F32)
+        out[position, :rotary // 2] = f32_to_bf16(np.cos(frequency.astype(np.float64)).astype(F32))
+        out[position, rotary // 2:] = f32_to_bf16(np.sin(frequency.astype(np.float64)).astype(F32))
+    return out.tobytes()
+
+
 def record_pieces(rec: dict, rank: int, tp: int):
     """Byte pieces of a non-MXFP4 record for one rank."""
     T = _G["tensors"]
@@ -806,6 +938,22 @@ def record_pieces(rec: dict, rank: int, tp: int):
             if t.dtype != "BF16":
                 raise SystemExit(f"{rec['name']}: {t.name} is {t.dtype}")
             yield from raw_pieces(t, policy_kind(t.name) if kind != "Dim1" else "Dim1", rank, tp)
+    elif lid == LAYOUT_BF16_FROM_FP8_BLOCK and all(s["quant"] == "bf16" for s in srcs):
+        for src in srcs:
+            t = T[src["weight"]]
+            yield from raw_pieces(t, policy_kind(t.name) if kind != "Dim1" else "Dim1", rank, tp)
+    elif lid == LAYOUT_BF16_FROM_FP8_BLOCK:
+        for src in srcs:
+            t = T[src["weight"]]
+            skind = policy_kind(t.name) if kind != "Dim1" else "Dim1"
+            for r0, r1 in row_pieces(t.name, skind, t.shape[0], rank, tp):
+                for a in range(r0, r1, 128):
+                    b = min(r1, a + 128)
+                    yield f32_to_bf16(dequant_rows(src, skind, a, b, rank, tp)).tobytes()
+    elif lid in (LAYOUT_INT2_HEAD, LAYOUT_INT2_HEAD_SCALE, LAYOUT_INT2_HEAD_ZERO):
+        yield from int2_head_pieces(rec, rank, tp)
+    elif lid == LAYOUT_ROPE_COS_SIN:
+        yield rope_cos_sin(rec)
     elif lid == LAYOUT_F32_FROM_BF16:
         (src,) = srcs
         for b in raw_pieces(T[src["weight"]], kind, rank, tp):
@@ -878,6 +1026,9 @@ def _task_body(task) -> list:
     if kind == "trio":
         out = mxfp4_trio(payload, rank, tp)
         return [_emit(rank, payload[role]["name"], [b]) for role, b in out.items()]
+    if kind == "fp8":
+        out = fp8_pair(payload, rank, tp)
+        return [_emit(rank, payload[role]["name"], [b]) for role, b in out.items()]
     return [_emit(rank, payload["name"], record_pieces(payload, rank, tp))]
 
 
@@ -895,7 +1046,7 @@ def canonical(obj) -> bytes:
     return json.dumps(obj, sort_keys=True, separators=(",", ":")).encode()
 
 
-def build_records(plan: dict, tensors: dict, tp: int, only):
+def build_records(plan: dict, tensors: dict, tp: int, only, primary_names=None):
     """The rank's records in table order (the plan's, then the raw leftovers) + the task list."""
     used = set()
     for r in plan["records"]:
@@ -909,7 +1060,10 @@ def build_records(plan: dict, tensors: dict, tp: int, only):
     if missing:
         raise SystemExit(f"plan names {len(missing)} tensors the checkpoint lacks: {missing[:4]}")
     rows = [dict(r) for r in plan["records"]]
-    for name in sorted(set(tensors) - used):
+    primary_names = set(tensors) if primary_names is None else set(primary_names)
+    if only:
+        primary_names.intersection_update(used)
+    for name in sorted(primary_names - used):
         t = tensors[name]
         kind = policy_kind(name)
         if kind != "Replicated":
@@ -920,7 +1074,7 @@ def build_records(plan: dict, tensors: dict, tp: int, only):
                                   "global_scale": None, "input_scale": None}]})
     for r in rows:
         check_shard_kind(r, tensors)
-    groups = {}
+    groups, fp8_groups = {}, {}
     for r in rows:
         if r["layout_id"] in MXFP4_TRIO:
             role = {LAYOUT_MXFP4_BLOCK_SCALE: "ws", LAYOUT_MXFP4_ROW_REF: "wref"}.get(
@@ -929,23 +1083,42 @@ def build_records(plan: dict, tensors: dict, tp: int, only):
             if role in g:
                 raise SystemExit(f"op {r['op']} has two {role} records")
             g[role] = r
+        if r["layout_id"] in (LAYOUT_FP8_PRESHUFFLE, LAYOUT_FP8_BLOCK_SCALE):
+            role = "ws" if r["layout_id"] == LAYOUT_FP8_BLOCK_SCALE else "w"
+            g = fp8_groups.setdefault(r["op"], {})
+            if role in g:
+                raise SystemExit(f"op {r['op']} has two FP8 {role} records")
+            g[role] = r
     for op, g in groups.items():
         if set(g) != {"w", "ws", "wref"}:
             raise SystemExit(f"op {op}: MXFP4 records {sorted(g)}, want w, ws and wref")
+    for op, g in fp8_groups.items():
+        if set(g) != {"w", "ws"}:
+            raise SystemExit(f"op {op}: FP8 records {sorted(g)}, want w and ws")
     if only:
-        # An MXFP4 record pulls in its op's whole trio: the three come out of one quantization.
         rx = re.compile(only)
         ops = {r["op"] for r in rows if r["layout_id"] in MXFP4_TRIO and rx.search(r["name"])}
+        fp8_ops = {r["op"] for r in rows
+                   if r["layout_id"] in (LAYOUT_FP8_PRESHUFFLE, LAYOUT_FP8_BLOCK_SCALE)
+                   and rx.search(r["name"])}
         rows = [r for r in rows if rx.search(r["name"])
-                or (r["layout_id"] in MXFP4_TRIO and r["op"] in ops)]
+                or (r["layout_id"] in MXFP4_TRIO and r["op"] in ops)
+                or (r["layout_id"] in (LAYOUT_FP8_PRESHUFFLE, LAYOUT_FP8_BLOCK_SCALE)
+                    and r["op"] in fp8_ops)]
         if not rows:
             raise SystemExit(f"--only {only!r} selects no record")
     tasks, seen = [], set()
     for r in rows:
         if r["layout_id"] in MXFP4_TRIO:
-            if r["op"] not in seen:
-                seen.add(r["op"])
+            key = ("trio", r["op"])
+            if key not in seen:
+                seen.add(key)
                 tasks.append(("trio", groups[r["op"]]))
+        elif r["layout_id"] in (LAYOUT_FP8_PRESHUFFLE, LAYOUT_FP8_BLOCK_SCALE):
+            key = ("fp8", r["op"])
+            if key not in seen:
+                seen.add(key)
+                tasks.append(("fp8", fp8_groups[r["op"]]))
         else:
             tasks.append(("rec", r))
     return rows, tasks
@@ -953,13 +1126,16 @@ def build_records(plan: dict, tensors: dict, tp: int, only):
 
 def check_shard_kind(r: dict, tensors: dict) -> None:
     """The plan's shard kind is the one the policy gives its sources (the SBRPACK1 format: asserted loudly)."""
-    if any(s["quant"] == "unit_bf16" for s in r["sources"]):
-        return  # a constant: no checkpoint tensor to shard
+    if not r["sources"] or any(s["quant"] == "unit_bf16" for s in r["sources"]):
+        return  # a computed table or a constant: no checkpoint tensor to shard
     kinds = [policy_kind(s["weight"]) for s in r["sources"]]
     if r["layout_id"] in (LAYOUT_F32_CHANNEL_SCALE,):
         kinds = [policy_kind(r["sources"][0]["scale"])]
     if len(kinds) > 1:
-        want = "Dim1" if all(k == "Dim1" for k in kinds) else "Dim0Segments"
+        if all(k == "Replicated" for k in kinds):
+            want = "Replicated"
+        else:
+            want = "Dim1" if all(k == "Dim1" for k in kinds) else "Dim0Segments"
         if want == "Dim0Segments" and any(k not in ("Dim0", "Dim0Segments") for k in kinds):
             raise SystemExit(f"{r['name']}: merge of {kinds}")
     else:
@@ -971,6 +1147,8 @@ def check_shard_kind(r: dict, tensors: dict) -> None:
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--model", required=True, help="checkpoint directory")
+    ap.add_argument("--target-model", default=None,
+                    help="optional target checkpoint supplying a drafter's embedding and head")
     ap.add_argument("--out", required=True, help="pack directory (rank<r>.pack + manifest.json)")
     ap.add_argument("--tp", type=int, default=2)
     ap.add_argument("--layout", default="device-final", choices=["device-final"])
@@ -998,11 +1176,21 @@ def main(argv=None) -> int:
     files = sorted(os.path.join(a.model, f) for f in os.listdir(a.model)
                    if f.endswith(".safetensors"))
     tlist, file_meta = collect_tensors(files)
+    primary_names = {t.name for t in tlist}
     tensors = {}
     for t in tlist:
         if t.name in tensors:
             raise SystemExit(f"{t.name} is in two checkpoint files")
         tensors[t.name] = t
+    target_meta = None
+    if a.target_model:
+        target_files = sorted(os.path.join(a.target_model, f) for f in os.listdir(a.target_model)
+                              if f.endswith(".safetensors"))
+        target_list, target_meta = collect_tensors(target_files)
+        for t in target_list:
+            if t.name in tensors:
+                raise SystemExit(f"{t.name} is in both the drafter and target checkpoints")
+            tensors[t.name] = t
 
     extras = {}
     for fn in TIER_EXTRAS:
@@ -1012,6 +1200,9 @@ def main(argv=None) -> int:
                 extras[fn] = hashlib.sha256(f.read()).hexdigest()
     tier_desc = {"model": os.path.basename(os.path.normpath(a.model)), "files": file_meta,
                  "extras": extras, "format": "safetensors"}
+    if a.target_model:
+        tier_desc["target_model"] = os.path.basename(os.path.normpath(a.target_model))
+        tier_desc["target_files"] = target_meta
     tier_id = hashlib.sha256(canonical(tier_desc)).hexdigest()
     plan_desc = {"format_version": FORMAT_VERSION, "tp_size": a.tp,
                  "layouts": {"by_record": "device-final"},
@@ -1020,12 +1211,22 @@ def main(argv=None) -> int:
     # list (and so the plan hash) they always had.
     if any(s["quant"] == "mxfp4_ocp" for r in plan["records"] for s in r["sources"]):
         plan_desc["transforms"].append("dequant(mxfp4_ocp)->fp32(value-exact)")
+    if any(s["quant"] == "nvfp4_modelopt" for r in plan["records"] for s in r["sources"]):
+        plan_desc["transforms"].append("dequant(nvfp4_modelopt:weight_scale_2 multiplies)->fp32")
+    if any(r["layout_id"] in (LAYOUT_FP8_PRESHUFFLE, LAYOUT_FP8_BLOCK_SCALE)
+           for r in plan["records"]):
+        plan_desc["transforms"].append("quant_fp8_block128->preshuffled_e4m3+scale")
+    if any(r["layout_id"] in (LAYOUT_INT2_HEAD, LAYOUT_INT2_HEAD_SCALE, LAYOUT_INT2_HEAD_ZERO)
+           for r in plan["records"]):
+        plan_desc["transforms"].append("quant_int2_head_from_live_bf16")
+    if any(r["layout_id"] == LAYOUT_ROPE_COS_SIN for r in plan["records"]):
+        plan_desc["transforms"].append("rope_cos_sin_correctly_rounded_f32_to_bf16")
     plan_hash = a.plan_hash or hashlib.sha256(canonical(plan_desc)).hexdigest()
     plan_desc["supplied"] = a.plan_hash is not None
     if len(bytes.fromhex(plan_hash)) != 32:
         raise SystemExit("--plan-hash must be 32 bytes of hex")
 
-    rows, tasks = build_records(plan, tensors, a.tp, a.only)
+    rows, tasks = build_records(plan, tensors, a.tp, a.only, primary_names)
     chunk_bytes = a.digest_chunk_mib << 20
     os.makedirs(a.out, exist_ok=True)
     rplans, paths = [], []
@@ -1103,7 +1304,7 @@ def main(argv=None) -> int:
 
 def _task_bytes(w) -> int:
     kind, _, p = w
-    r = p["w"] if kind == "trio" else p
+    r = p["w"] if kind in ("trio", "fp8") else p
     return expected_length(r["dtype"], r["shape"]) * (8 if kind == "trio" else 1)
 
 

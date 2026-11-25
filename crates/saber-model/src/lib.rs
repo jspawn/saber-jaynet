@@ -24,7 +24,10 @@ pub mod dflash_graph;
 pub mod draft;
 pub mod graph;
 pub mod inkling2;
+pub mod kolibri;
+pub mod qwen3_5_moe;
 pub mod qwen4_exp;
+pub mod ripple;
 pub mod template;
 pub mod tokenizer;
 

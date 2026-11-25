@@ -3433,6 +3433,297 @@ pub const SIG_DFLASH_QK_ROPE: &[SigArg] = &[
     a("eps", F32),
 ];
 
+pub const SIG_KOLIBRI_ROUTER: &[SigArg] = &[
+    p("input", 2),
+    p("weight", 2),
+    p("bias", 4),
+    p("ids", 4),
+    p("weights", 4),
+    a("rows", I32),
+    a("hidden", I32),
+    a("experts", I32),
+    a("top_k", I32),
+];
+pub const SIG_KOLIBRI_SWIGLU: &[SigArg] =
+    &[p("gate", 2), p("up", 2), p("output", 2), a("elements", I32)];
+pub const SIG_KOLIBRI_ACCUMULATE: &[SigArg] = &[
+    p("accumulated", 2),
+    p("input", 2),
+    a("scale", F32),
+    a("elements", I32),
+];
+pub const SIG_KOLIBRI_QUANT: &[SigArg] = &[
+    p("input", 2),
+    p("output", 1),
+    p("scales", 4),
+    a("rows", I32),
+    a("hidden", I32),
+];
+pub const SIG_KOLIBRI_ROUTE: &[SigArg] = &[
+    p("input", 2),
+    p("weight", 2),
+    p("bias", 4),
+    p("ids", 4),
+    p("weights", 4),
+    p("route_pos", 4),
+    p("row_tok", 4),
+    p("tile_expert", 4),
+    p("tile_row0", 4),
+    p("tile_rows", 4),
+    p("expert_cnt", 4),
+    p("meta", 4),
+    a("rows", I32),
+    a("hidden", I32),
+    a("experts", I32),
+    a("top_k", I32),
+];
+pub const SIG_KOLIBRI_SORT: &[SigArg] = &[
+    p("ids", 4),
+    p("route_pos", 4),
+    p("row_tok", 4),
+    p("tile_expert", 4),
+    p("tile_row0", 4),
+    p("tile_rows", 4),
+    p("expert_cnt", 4),
+    p("meta", 4),
+    a("rows", I32),
+    a("experts", I32),
+    a("top_k", I32),
+];
+pub const SIG_KOLIBRI_COMBINE: &[SigArg] = &[
+    p("y", 2),
+    p("weights", 4),
+    p("route_pos", 4),
+    p("meta", 4),
+    p("output", 2),
+    a("rows", I32),
+    a("hidden", I32),
+    a("top_k", I32),
+];
+pub const SIG_KOLIBRI_ATTN_PREFILL: &[SigArg] = &[
+    p("q", 2),
+    p("kc", 1),
+    p("vc", 1),
+    p("block_table", 4),
+    p("kscales", 4),
+    p("vscales", 4),
+    p("output", 2),
+    p("positions", 8),
+    a("rows", I32),
+    a("nq", I32),
+    a("nkv", I32),
+    a("block_size", I32),
+    a("ring_blocks", I32),
+    a("window", I32),
+    a("scale", F32),
+    a("q_head_offset", I32),
+];
+
+pub const SIG_RIPPLE_RMSNORM: &[SigArg] = &[
+    p("input", 2),
+    p("weight", 2),
+    p("output", 2),
+    a("rows", I32),
+    a("hidden", I32),
+    a("eps", F32),
+];
+pub const SIG_RIPPLE_POSTNORM: &[SigArg] = &[
+    p("input", 2),
+    p("residual", 2),
+    p("weight", 2),
+    p("output", 2),
+    a("rows", I32),
+    a("hidden", I32),
+    a("eps", F32),
+];
+pub const SIG_RIPPLE_VALUE_LERP: &[SigArg] = &[
+    p("initial", 2),
+    p("current", 2),
+    p("lambda", 2),
+    p("output", 2),
+    a("elements", I32),
+];
+pub const SIG_RIPPLE_QK_ROPE: &[SigArg] = &[
+    p("q", 2),
+    p("k", 2),
+    p("qw", 2),
+    p("kw", 2),
+    p("cos_sin", 2),
+    p("positions", 8),
+    p("q_out", 2),
+    p("k_out", 2),
+    a("rows", I32),
+    a("nq", I32),
+    a("nkv", I32),
+    a("eps", F32),
+    a("apply_rope", I32),
+];
+pub const SIG_RIPPLE_KV_APPEND: &[SigArg] = &[
+    p("key", 2),
+    p("value", 2),
+    p("kc", 2),
+    p("vc", 2),
+    p("slots", 8),
+    a("rows", I32),
+    a("nkv", I32),
+];
+pub const SIG_RIPPLE_ATTN: &[SigArg] = &[
+    p("q", 2),
+    p("kc", 2),
+    p("vc", 2),
+    p("output", 2),
+    a("rows", I32),
+    a("nq", I32),
+    a("nkv", I32),
+    a("start_pos", I32),
+    a("window", I32),
+];
+pub const SIG_RIPPLE_GATE_MUL: &[SigArg] = &[
+    p("attention", 2),
+    p("gate", 2),
+    p("output", 2),
+    a("elements", I32),
+];
+pub const SIG_RIPPLE_SCALE: &[SigArg] = &[p("values", 2), a("elements", I32), a("scale", F32)];
+pub const SIG_RIPPLE_RMS_QUANT: &[SigArg] = &[
+    p("input", 2),
+    p("weight", 2),
+    p("output", 1),
+    p("scales", 4),
+    a("rows", I32),
+    a("hidden", I32),
+    a("eps", F32),
+];
+pub const SIG_RIPPLE_SWIGLU_QUANT: &[SigArg] = &[
+    p("gate_up", 2),
+    p("output", 1),
+    p("scales", 4),
+    a("rows", I32),
+    a("width", I32),
+    a("clamp_threshold", F32),
+];
+pub const SIG_RIPPLE_KV_APPEND_FP8: &[SigArg] = &[
+    p("key", 2),
+    p("value", 2),
+    p("kc", 1),
+    p("vc", 1),
+    p("kscales", 4),
+    p("vscales", 4),
+    p("slots", 8),
+    a("rows", I32),
+    a("nkv", I32),
+    a("window", I32),
+    a("cache_capacity", I32),
+];
+pub const SIG_RIPPLE_ATTN_FP8: &[SigArg] = &[
+    p("q", 2),
+    p("kc", 1),
+    p("vc", 1),
+    p("kscales", 4),
+    p("vscales", 4),
+    p("output", 2),
+    a("rows", I32),
+    a("nq", I32),
+    a("nkv", I32),
+    a("start_pos", I32),
+    a("window", I32),
+    a("cache_capacity", I32),
+];
+pub const SIG_KOLIBRI_ATTN_PARTIAL: &[SigArg] = &[
+    p("q", 2),
+    p("kc", 1),
+    p("vc", 1),
+    p("kscales", 4),
+    p("vscales", 4),
+    p("partial", 4),
+    p("partial_ml", 4),
+    a("rows", I32),
+    a("nq", I32),
+    a("nkv", I32),
+    a("start_pos", I32),
+    a("window", I32),
+    a("cache_capacity", I32),
+    a("splits", I32),
+];
+pub const SIG_KOLIBRI_ATTN_REDUCE: &[SigArg] = &[
+    p("partial", 4),
+    p("partial_ml", 4),
+    p("output", 2),
+    a("rows", I32),
+    a("nq", I32),
+    a("splits", I32),
+];
+pub const SIG_RIPPLE_DRAFT_SWIGLU_BF16: &[SigArg] = &[
+    p("gate_up", 2),
+    p("output", 2),
+    a("rows", I32),
+    a("width", I32),
+];
+pub const SIG_RIPPLE_ADD_RMS: &[SigArg] = &[
+    p("input", 2),
+    p("residual", 2),
+    p("weight", 2),
+    p("output", 2),
+    p("residual_out", 2),
+    a("rows", I32),
+    a("hidden", I32),
+    a("eps", F32),
+];
+pub const SIG_RIPPLE_DRAFT_QK: &[SigArg] = &[
+    p("qkv", 2),
+    p("qw", 2),
+    p("kw", 2),
+    p("cos_sin", 2),
+    p("positions", 8),
+    p("q_out", 2),
+    p("k_out", 2),
+    p("v_out", 2),
+    a("rows", I32),
+    a("nq", I32),
+    a("nkv", I32),
+    a("eps", F32),
+    a("apply_rope", I32),
+];
+pub const SIG_RIPPLE_DRAFT_CTX_APPEND: &[SigArg] = &[
+    p("context_kv", 2),
+    p("kw", 2),
+    p("cos_sin", 2),
+    p("positions", 8),
+    p("kc", 1),
+    p("vc", 1),
+    p("kscales", 4),
+    p("vscales", 4),
+    a("rows", I32),
+    a("nkv", I32),
+    a("context_width", I32),
+    a("layer_kv_offset", I32),
+    a("eps", F32),
+    a("apply_rope", I32),
+    a("window", I32),
+    a("cache_capacity", I32),
+];
+pub const SIG_RIPPLE_DRAFT_ATTN: &[SigArg] = &[
+    p("q", 2),
+    p("kc", 1),
+    p("vc", 1),
+    p("kscales", 4),
+    p("vscales", 4),
+    p("output", 2),
+    a("rows", I32),
+    a("nq", I32),
+    a("nkv", I32),
+    a("position", I32),
+    a("window", I32),
+    a("cache_capacity", I32),
+];
+pub const SIG_RIPPLE_AUX_CAPTURE: &[SigArg] = &[
+    p("input", 2),
+    p("output", 2),
+    a("rows", I32),
+    a("hidden", I32),
+    a("tap", I32),
+];
+
 /// `dflash_selector_walk_*`: the seven-step walk from the selector's edge scores to the draft
 /// block. One program per request, one wave, as the reference launches it.
 ///
@@ -4922,6 +5213,76 @@ pub fn signature_for(kernel: &str) -> Option<&'static [SigArg]> {
         SIG_DFLASH_HADI8_CONV
     } else if kernel.starts_with("dflash_hadi8_silu_") {
         SIG_DFLASH_HADI8_SILU
+    } else if kernel == "kolibri_router_bf16" {
+        SIG_KOLIBRI_ROUTER
+    } else if kernel == "kolibri_swiglu_bf16" {
+        SIG_KOLIBRI_SWIGLU
+    } else if kernel == "kolibri_accumulate_bf16" {
+        SIG_KOLIBRI_ACCUMULATE
+    } else if kernel == "kolibri_quant_bf16" {
+        SIG_KOLIBRI_QUANT
+    } else if kernel == "kolibri_route_bf16" {
+        SIG_KOLIBRI_ROUTE
+    } else if kernel == "kolibri_sort_top6" {
+        SIG_KOLIBRI_SORT
+    } else if kernel == "kolibri_combine_bf16" {
+        SIG_KOLIBRI_COMBINE
+    } else if kernel == "kolibri_attn_prefill_h128_gqa12_fp8"
+        || kernel == "kolibri_attn_prefill_h128_gqa12_fp8_t32"
+    {
+        SIG_KOLIBRI_ATTN_PREFILL
+    } else if kernel == "ripple_rmsnorm_bf16" {
+        SIG_RIPPLE_RMSNORM
+    } else if kernel == "ripple_postnorm_residual_bf16" {
+        SIG_RIPPLE_POSTNORM
+    } else if kernel == "ripple_value_lerp_bf16" {
+        SIG_RIPPLE_VALUE_LERP
+    } else if kernel == "ripple_qk_norm_rope_h128" {
+        SIG_RIPPLE_QK_ROPE
+    } else if kernel == "ripple_kv_append_h128_bf16" {
+        SIG_RIPPLE_KV_APPEND
+    } else if kernel == "ripple_attn_h128_bf16" {
+        SIG_RIPPLE_ATTN
+    } else if kernel == "ripple_gate_mul_bf16" {
+        SIG_RIPPLE_GATE_MUL
+    } else if kernel == "ripple_scale_bf16" {
+        SIG_RIPPLE_SCALE
+    } else if kernel == "ripple_rms_quant_bf16" {
+        SIG_RIPPLE_RMS_QUANT
+    } else if kernel == "ripple_swiglu_quant_bf16" {
+        SIG_RIPPLE_SWIGLU_QUANT
+    } else if kernel == "ripple_kv_append_h128_fp8" {
+        SIG_RIPPLE_KV_APPEND_FP8
+    } else if kernel == "ripple_attn_h128_fp8" {
+        SIG_RIPPLE_ATTN_FP8
+    } else if kernel == "kolibri_attn_decode_partial_h128_fp8" {
+        SIG_KOLIBRI_ATTN_PARTIAL
+    } else if kernel == "kolibri_attn_decode_reduce_h128" {
+        SIG_KOLIBRI_ATTN_REDUCE
+    } else if kernel == "ripple_act_quant_bf16" {
+        SIG_DFLASH_ACT_QUANT
+    } else if kernel == "ripple_draft_swiglu_quant_bf16" {
+        SIG_DFLASH_SILU
+    } else if kernel == "ripple_draft_swiglu_bf16" {
+        SIG_RIPPLE_DRAFT_SWIGLU_BF16
+    } else if kernel == "ripple_add_rms_bf16" {
+        SIG_RIPPLE_ADD_RMS
+    } else if kernel == "ripple_draft_conv4_bf16" {
+        SIG_DFLASH_CONV
+    } else if kernel == "ripple_draft_conv4_quant_bf16" {
+        SIG_DFLASH_CONV_QUANT
+    } else if kernel == "ripple_draft_qk_rope_h128" {
+        SIG_RIPPLE_DRAFT_QK
+    } else if kernel == "ripple_draft_ctx_append_fp8" {
+        SIG_RIPPLE_DRAFT_CTX_APPEND
+    } else if kernel == "ripple_draft_attn_h128_fp8" {
+        SIG_RIPPLE_DRAFT_ATTN
+    } else if kernel == "ripple_draft_top32_bf16" {
+        SIG_DFLASH_TOPK
+    } else if kernel == "ripple_draft_score32_r256" {
+        SIG_DFLASH_SELECTOR
+    } else if kernel == "ripple_aux_capture_bf16" {
+        SIG_RIPPLE_AUX_CAPTURE
     } else if kernel.starts_with("dflash_gemm_a8w8") {
         SIG_DFLASH_GEMM
     } else if kernel.starts_with("dflash_selector_walk") {
@@ -5345,9 +5706,10 @@ pub fn signature_for(kernel: &str) -> Option<&'static [SigArg]> {
         || kernel == "fn111_moe_route_lds_dpp_nt512"
         || kernel.starts_with("fn163_route_")
         || kernel.starts_with("fn163_attr_route_")
+        || kernel == "occamy_moe_route_topk8_sort_e256"
     {
         SIG_MOE_ROUTE
-    } else if kernel == "moe_combine_bf16" {
+    } else if kernel == "occamy_moe_combine_topk8_bf16" || kernel == "moe_combine_bf16" {
         SIG_MOE_COMBINE
     } else if kernel.starts_with("add_rms_quant") {
         SIG_ADD_RMS_QUANT
@@ -5355,6 +5717,10 @@ pub fn signature_for(kernel: &str) -> Option<&'static [SigArg]> {
         SIG_SILU_MUL_QUANT
     } else if kernel.starts_with("gdn_norm_quant") {
         SIG_GDN_NORM_QUANT
+    } else if kernel.starts_with("occamy_attn_prefill_") {
+        SIG_SABER_ATTN_PREFILL
+    } else if kernel.starts_with("occamy_attn_decode_") {
+        SIG_SABER_ATTN_DECODE
     } else if kernel.starts_with("saber_attn_prefill_") {
         SIG_SABER_ATTN_PREFILL
     } else if kernel.starts_with("saber_attn_declc_") {

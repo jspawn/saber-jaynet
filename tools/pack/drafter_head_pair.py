@@ -1,27 +1,15 @@
 #!/usr/bin/env python3
-"""Pair a DFlash2 drafter pack with ANOTHER target checkpoint's bf16 head.
+"""Pair a DFlash2 drafter pack with another target checkpoint's BF16 head.
 
-The drafter checkpoint (Qwen3.8-27B-DFlash2-FP8) has no embedding and no head: its pack carries
-the TARGET's (``input_embedding.weight``, ``head.rerank.w`` and the int2 draft head
-``head.int2.{wq,s,zs}`` quantised from it), and the engine's pairing law (``saber_engine::
-head_share``) refuses a drafter whose ``head.rerank.w`` / ``input_embedding.weight`` sha256 differ
-from the target pack's ``lm_head.w`` / embedding record. A target with a different head (Quark's
-own bf16 ``lm_head``) therefore needs a drafter pack whose head records are THAT head.
+The drafter checkpoint has no embedding or head. Its pack carries those target tensors, and the
+engine refuses a drafter whose embedding or rerank head differs from the target's. This tool
+copies every trained drafter record byte-for-byte, installs the target's BF16 head, and re-derives
+the int2 draft head. By default the embedding must already match. ``--pair-embedding`` also
+installs the target's embedding for fine-tunes such as DaisyRose that changed that table.
 
-This tool writes such a pack from two packs, no checkpoint read and no torch:
-
-* every drafter record whose bytes come from the drafter checkpoint (and the embedding) is copied
-  byte for byte from ``--drafter-pack`` (the bf16-rerank pack, ``qwen38-dflash2-drafter``) and its
-  sha256 re-taken while it streams -- it must equal the source manifest's;
-* ``head.rerank.w`` is the target pack's ``lm_head.w`` record of the same rank, byte for byte
-  (its sha256 must equal the target manifest's), and ``input_embedding.weight`` must already
-  equal the target's embedding (refused otherwise: this tool swaps the head, nothing else);
-* ``head.int2.{wq,s,zs}`` are re-quantised from that head with the int2 draft-head algorithm
-  (asymmetric 2-bit min/max over 128-wide groups, quarter-split packing, the scale and the zero
-  premultiplied by 4 and rounded to bf16 -- the from-bf16-head path: the quantiser reads the
-  bf16 matrix widened to f32). ``--check-int2`` first re-derives the SOURCE pack's int2 records
-  from its own ``head.rerank.w`` and requires sha256 equality, which proves this port is the
-  builder's arithmetic.
+``--check-int2`` first reproduces the source pack's int2 records from its own BF16 head. The
+int2 draft-head algorithm uses asymmetric 2-bit min/max groups of 128, quarter-split packing,
+and BF16 scales and zeros premultiplied by four. No checkpoint or torch is required, only NumPy.
 
 The table order, shapes, layouts, data offsets and chunk size are the source pack's; the plan
 hash is the source's (same plan); the tier id is new (sha256 over the source tier id and the
@@ -146,6 +134,8 @@ def main() -> int:
     ap.add_argument("--out", required=True)
     ap.add_argument("--check-int2", action="store_true",
                     help="re-derive the source pack's int2 records from its own head first")
+    ap.add_argument("--pair-embedding", action="store_true",
+                    help="also replace the source embedding with the target pack's embedding")
     a = ap.parse_args()
     dman, tman = load(a.drafter_pack), load(a.target_pack)
     tp = dman["tp_size"]
@@ -159,6 +149,12 @@ def main() -> int:
         if TARGET_HEAD not in {r["name"] for r in recs_of(tman, rank)}:
             raise SystemExit(f"{a.target_pack}: no bf16 {TARGET_HEAD} record (a target with an fp8 "
                              "head needs no pairing: use the stock drafter pack)")
+        if not a.pair_embedding:
+            source_embed = next(r for r in recs_of(dman, rank) if r["name"] == EMBED)
+            target_embed = next(r for r in recs_of(tman, rank) if r["name"] == TARGET_EMBED)
+            if source_embed["sha256"] != target_embed["sha256"]:
+                raise SystemExit(f"rank {rank}: the embeddings differ; pass --pair-embedding to "
+                                 "install the target embedding too")
     if os.path.exists(a.out):
         raise SystemExit(f"{a.out} exists; refusing to overwrite a pack")
 
@@ -192,8 +188,9 @@ def main() -> int:
                     (t["dtype"], t["shape"], t["length"], t["layout_id"]):
                 raise SystemExit(f"rank {rank}: {d['name']} {d['shape']} L{d['layout_id']} vs "
                                  f"{t['name']} {t['shape']} L{t['layout_id']}")
-        if dby[EMBED]["sha256"] != te["sha256"]:
-            raise SystemExit(f"rank {rank}: the embeddings differ too; this tool swaps the head only")
+        if not a.pair_embedding and dby[EMBED]["sha256"] != te["sha256"]:
+            raise SystemExit(f"rank {rank}: the embeddings differ; pass --pair-embedding to "
+                             "install the target embedding too")
         records = [Record(r["name"], r["dtype"], r["shape"], r["shard_kind"], r["layout_id"],
                           length=r["length"], sources=r.get("sources"), rank=rank)
                    for r in drecs]
@@ -207,42 +204,50 @@ def main() -> int:
         w = RankWriter(out, rp, hp)
         for r, d in zip(records, drecs):
             w.begin(r)
-            if r.name == RERANK:
-                for b in stream(tgt, th["data_off"], th["length"]):
+            if r.name == RERANK or (r.name == EMBED and a.pair_embedding):
+                target_record = th if r.name == RERANK else te
+                for b in stream(tgt, target_record["data_off"], target_record["length"]):
                     w.write(b)
-                r.sources = [f"target:{s}" for s in th.get("sources", [])]
+                r.sources = [f"target:{s}" for s in target_record.get("sources", [])]
             elif r.name in int2:
                 w.write(int2[r.name])
             else:
                 for b in stream(src, d["data_off"], d["length"]):
                     w.write(b)
             w.end()
-        tier_id = hashlib.sha256(canonical({
+        tier_desc = {
             "drafter_tier": dman["tier"]["id"], "head_from_tier": tman["tier"]["id"],
-            "tool": "tools/pack/drafter_head_pair.py"})).hexdigest()
+            "tool": "tools/pack/drafter_head_pair.py",
+        }
+        if a.pair_embedding:
+            tier_desc["embedding_from_tier"] = tman["tier"]["id"]
+        tier_id = hashlib.sha256(canonical(tier_desc)).hexdigest()
         w.finish(tp, rank, hdr["plan_hash"], bytes.fromhex(tier_id), int(time.time()))
         ranks_out.append((rank, out, rp, records, tier_id))
         log(f"rank {rank}: written {rp.file_bytes} B")
     hp.close()
 
-    # The record law: every record equals the source's except the head family; the head equals
-    # the target's lm_head.w.
+    # Every non-paired record equals the source; every paired record equals the target.
     bad = 0
     man_ranks = []
     for rank, out, rp, records, tier_id in ranks_out:
         drecs = recs_of(dman, rank)
-        th = {r["name"]: r for r in recs_of(tman, rank)}[TARGET_HEAD]
+        tby = {r["name"]: r for r in recs_of(tman, rank)}
+        th, te = tby[TARGET_HEAD], tby[TARGET_EMBED]
         rows = []
         for r, d in zip(records, drecs):
             h = r.sha256.hex()
             if r.name == RERANK:
                 ok, what = h == th["sha256"], f"== target {TARGET_HEAD}"
+            elif r.name == EMBED and a.pair_embedding:
+                ok, what = h == te["sha256"], f"== target {TARGET_EMBED}"
             elif r.name in INT2:
                 ok, what = True, f"re-quantised (source {d['sha256'][:16]})"
             else:
                 ok, what = h == d["sha256"], "== source"
             bad += not ok
-            if r.name in INT2 or r.name == RERANK or not ok:
+            if r.name in INT2 or r.name == RERANK or \
+                    (r.name == EMBED and a.pair_embedding) or not ok:
                 log(f"rank {rank} {r.name}: {h[:16]} {what} {'OK' if ok else 'FAIL'}")
             rows.append({"name": r.name, "dtype": r.dtype, "shape": r.shape,
                          "shard_kind": d["shard_kind"], "layout_id": r.layout_id,
@@ -250,21 +255,27 @@ def main() -> int:
                          "sha256": h, **({"chunks": len(r.chunk_digests)}
                                          if r.chunk_digests else {}),
                          "sources": r.sources})
+        copied = lambda r: r.name in INT2 or r.name == RERANK or \
+            (r.name == EMBED and a.pair_embedding)
         same = sum(1 for r, d in zip(records, drecs)
-                   if r.name not in INT2 and r.name != RERANK and r.sha256.hex() == d["sha256"])
-        log(f"rank {rank}: {same} of {len(records) - 4} non-head records == source; "
-            f"head == target: {records[[x.name for x in records].index(RERANK)].sha256.hex() == th['sha256']}")
+                   if not copied(r) and r.sha256.hex() == d["sha256"])
+        unchanged = sum(not copied(r) for r in records)
+        log(f"rank {rank}: {same} of {unchanged} non-paired records == source; "
+            f"head and embedding == target: {records[[x.name for x in records].index(RERANK)].sha256.hex() == th['sha256'] and records[[x.name for x in records].index(EMBED)].sha256.hex() == te['sha256']}")
         man_ranks.append({"rank": rank, "file": os.path.basename(out), "file_bytes": rp.file_bytes,
                           "data_off": rp.data_off, "record_count": len(records), "records": rows})
     manifest = {k: dman[k] for k in ("magic", "format_version", "header_bytes", "record_bytes",
                                      "align")}
+    target_records = {"head": TARGET_HEAD}
+    if a.pair_embedding:
+        target_records["embedding"] = TARGET_EMBED
     manifest.update({
         "built_unix": int(time.time()), "builder": "tools/pack/drafter_head_pair.py",
         "tp_size": tp,
         "tier": {"id": ranks_out[0][4], "descriptor": {
             "derived_from": {"pack": os.path.abspath(a.drafter_pack), "tier": dman["tier"]},
             "head_from": {"pack": os.path.abspath(a.target_pack), "tier_id": tman["tier"]["id"],
-                          "record": TARGET_HEAD}}},
+                          "record": TARGET_HEAD, "records": target_records}}},
         "plan": dman["plan"], "shard_policy": dman.get("shard_policy", []), "ranks": man_ranks,
     })
     with open(os.path.join(a.out, "manifest.json"), "w") as f:

@@ -3674,6 +3674,9 @@ pub enum SourceQuant {
     /// NVFP4: `weight_packed` (two `e2m1` per byte) × an `e4m3` scale per 16 values, ÷ a per-tensor
     /// `weight_global_scale` **divisor** (compressed-tensors stores `(6 * 448) / amax`).
     Nvfp4,
+    /// Raw ModelOpt NVFP4: the same packed codes and block scales, but `weight_scale_2` is a
+    /// multiplier rather than compressed-tensors' reciprocal `weight_global_scale`.
+    Nvfp4ModelOpt,
     /// fp8 per output channel: `weight` (`e4m3`) × `weight_scale` `[N, 1]`.
     Fp8Channel,
     /// `bf16`, nothing to undo.
@@ -3697,6 +3700,7 @@ impl SourceQuant {
     pub fn as_str(self) -> &'static str {
         match self {
             SourceQuant::Nvfp4 => "nvfp4",
+            SourceQuant::Nvfp4ModelOpt => "nvfp4_modelopt",
             SourceQuant::Fp8Channel => "fp8_channel",
             SourceQuant::Bf16 => "bf16",
             SourceQuant::AsStored => "as_stored",

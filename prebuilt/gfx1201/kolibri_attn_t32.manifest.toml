@@ -1,0 +1,117 @@
+schema_version = 1
+plugin = "kolibri_attn_t32"
+arch = "gfx1201"
+source = "crates/saber-kernels/hip/kolibri_attn_t32.hip"
+source_sha256 = "db588f14957eda2dc5c278f9f61b51a138f3ea84ce5dcf9d340d80f4538369a2"
+flags = "--genco --offload-arch=gfx1201 -O3"
+build_hash = "3e034c03660c96b9aa96b731ddee1fbcfa65357f14ae0b3611142e4e56f7037a"
+hsaco = "kolibri_attn_t32.hsaco"
+hsaco_sha256 = "b2ba62a42ffd19728d364a3e859f51e6120781f0e099f342a1ca0fcac2dfebd5"
+
+[[kernel]]
+name = "kolibri_attn_prefill_h128_gqa12_fp8_t32"
+symbol = "kolibri_attn_prefill_h128_gqa12_fp8_t32.kd"
+kernarg_segment_size = 96
+kernarg_segment_align = 8
+group_segment_fixed_size = 27392
+private_segment_fixed_size = 0
+vgpr_count = 165
+sgpr_count = 43
+wavefront_size = 32
+max_flat_workgroup_size = 768
+
+[[kernel.arg]]
+offset = 0
+size = 8
+value_kind = "global_buffer"
+name = "q"
+
+[[kernel.arg]]
+offset = 8
+size = 8
+value_kind = "global_buffer"
+name = "kc"
+
+[[kernel.arg]]
+offset = 16
+size = 8
+value_kind = "global_buffer"
+name = "vc"
+
+[[kernel.arg]]
+offset = 24
+size = 8
+value_kind = "global_buffer"
+name = "block_table"
+
+[[kernel.arg]]
+offset = 32
+size = 8
+value_kind = "global_buffer"
+name = "kscales"
+
+[[kernel.arg]]
+offset = 40
+size = 8
+value_kind = "global_buffer"
+name = "vscales"
+
+[[kernel.arg]]
+offset = 48
+size = 8
+value_kind = "global_buffer"
+name = "output"
+
+[[kernel.arg]]
+offset = 56
+size = 8
+value_kind = "global_buffer"
+name = "positions"
+
+[[kernel.arg]]
+offset = 64
+size = 4
+value_kind = "by_value"
+name = "rows"
+
+[[kernel.arg]]
+offset = 68
+size = 4
+value_kind = "by_value"
+name = "nq"
+
+[[kernel.arg]]
+offset = 72
+size = 4
+value_kind = "by_value"
+name = "nkv"
+
+[[kernel.arg]]
+offset = 76
+size = 4
+value_kind = "by_value"
+name = "block_size"
+
+[[kernel.arg]]
+offset = 80
+size = 4
+value_kind = "by_value"
+name = "ring_blocks"
+
+[[kernel.arg]]
+offset = 84
+size = 4
+value_kind = "by_value"
+name = "window"
+
+[[kernel.arg]]
+offset = 88
+size = 4
+value_kind = "by_value"
+name = "scale"
+
+[[kernel.arg]]
+offset = 92
+size = 4
+value_kind = "by_value"
+name = "q_head_offset"

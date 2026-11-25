@@ -3896,7 +3896,7 @@ pub fn gate(args: &GateArgs) -> anyhow::Result<usize> {
                 );
             }
         }
-        // THE REAL DRAFTER'S ACCOUNTING, on the host, beside the mock that is actually running.
+        // THE VERIFY'S ACCOUNTING, on the host, beside the mock that is actually running.
         //
         // Every arm below drives a MOCK, and a reader has no way to tell from the output whether
         // that is because the real one is slower, absent or unfinished. So the tier says what it
@@ -4276,6 +4276,100 @@ pub fn gate(args: &GateArgs) -> anyhow::Result<usize> {
         digest(&solo[0]),
         &solo[0][..solo[0].len().min(12)]
     );
+    if width > 1 {
+        let mut one = vec![admit_and_prefill(
+            &mut forward,
+            SeqId(90),
+            &conc_prompts[0],
+            &blocks_for(0, per_seq),
+            prefill_chunk,
+        )?];
+        let mut no_drafter = NoDrafter;
+        let _ = decode_together(&mut forward, &mut one, 1, 1, &mut no_drafter, args.gen)?;
+        forward.release(one[0].seq);
+        let spec0 = one.remove(0).ids;
+        let n = spec0.len().min(solo[0].len());
+        let first = spec0[..n]
+            .iter()
+            .zip(&solo[0][..n])
+            .position(|(a, b)| a != b);
+        match first {
+            Some(at) => println!(
+                "parity    VERIFY diverges from its own no-drafter run at token {at}: {} vs {} \
+                 (speculative vs no-drafter)",
+                solo[0][at], spec0[at]
+            ),
+            None => println!("parity    VERIFY matches its own no-drafter run over {n} token(s)"),
+        }
+        if std::env::var_os("SABER_PRINT_DELTAS").is_some() {
+            let shape = |width| StepRows {
+                phase: Phase::Decode,
+                rows: width,
+                width,
+                samples: true,
+                ragged: false,
+            };
+            for (op, a, b, launches) in forward.facts().bucket_op_deltas(shape(1), shape(width)) {
+                println!("plandelta {op}: width1 {a} | width{width} {b} | {launches} launches");
+            }
+        }
+        if let (Some(at), Some(_)) = (first, args.solo_ids_out.as_ref()) {
+            let mut cursor = 1usize;
+            let mut location = None;
+            for (step, st) in solo_trace.iter().enumerate() {
+                let rows = st.committed[0].len();
+                if at >= cursor && at < cursor + rows {
+                    location = Some((step, at - cursor));
+                    break;
+                }
+                cursor += rows;
+            }
+            if let Some((step, row)) = location.filter(|_| at > 0) {
+                let mut wide_one = vec![admit_and_prefill(
+                    &mut forward,
+                    SeqId(91),
+                    &conc_prompts[0],
+                    &blocks_for(0, per_seq),
+                    prefill_chunk,
+                )?];
+                let mut diagnostic_drafter: Box<dyn Drafter> = if engine_drafts {
+                    Box::new(EngineDrafter::new(width - 1))
+                } else {
+                    Box::new(FixedDrafter::new(FIXED_DRAFT_TOKEN, width - 1))
+                };
+                let mut margins = vec![Vec::new()];
+                let _ = decode_traced(
+                    &mut forward,
+                    &mut wide_one,
+                    1,
+                    width,
+                    diagnostic_drafter.as_mut(),
+                    step + 1,
+                    None,
+                    Some(&mut margins),
+                    None,
+                )?;
+                forward.release(wide_one[0].seq);
+                let wide_ids = wide_one.remove(0).ids;
+                if wide_ids.get(at) != solo[0].get(at) {
+                    println!("parity    the top-K rerun did not reproduce the token divergence");
+                } else {
+                    let margin = &margins[0][at - 1];
+                    println!(
+                        "parity    verify step {step} row {row}: committed {}, merged top-K {:?}",
+                        margin.id,
+                        margin.top.iter().take(4).collect::<Vec<_>>()
+                    );
+                }
+            }
+        }
+        if let Some(path) = args.solo_ids_out.as_ref() {
+            let path = path.with_extension("spec0.json");
+            let row: Vec<i64> = spec0.iter().map(|&t| t as i64).collect();
+            std::fs::write(&path, serde_json::to_string(&row)?)
+                .with_context(|| format!("writing the no-drafter ids to {}", path.display()))?;
+        }
+    }
     if let Some(path) = args.solo_ids_out.as_ref() {
         let row: Vec<i64> = solo[0].iter().map(|&t| t as i64).collect();
         std::fs::write(path, serde_json::to_string(&row)?)

@@ -4,9 +4,9 @@ arch = "gfx1201"
 source = "crates/saber-kernels/hip/p27w2_gdn_replay_lds.hip"
 source_sha256 = "4b2b6592b04b8be92972ae858d8a8f27d594bbe70be6ac8b0234ba4fbfdbb077"
 flags = "--genco --offload-arch=gfx1201 -O3 -ffp-contract=off"
-build_hash = "c4977924e903ec2c8180d90baef9ff61f70c9408cad3f943e4986815e7cd596a"
+build_hash = "5710b87ea45730b3d31040b2e652996be4df51e7eb22212541885c9e4f1806b4"
 hsaco = "p27w2_gdn_replay_lds.hsaco"
-hsaco_sha256 = "1f50b42d73a817d5d6b3ad5f3f965d1393ef5c38829293edc6fc4f5b63037bc0"
+hsaco_sha256 = "cbe42aa66504cb597d1136be3d7cc15f458c40c07a327a826daf7cf2297b2c84"
 
 [[kernel]]
 name = "p27w2_gdn_replay_lds_f16s_k128_v128_ab1_vs1"
@@ -15,7 +15,7 @@ kernarg_segment_size = 176
 kernarg_segment_align = 8
 group_segment_fixed_size = 20608
 private_segment_fixed_size = 0
-vgpr_count = 165
+vgpr_count = 171
 sgpr_count = 62
 wavefront_size = 32
 max_flat_workgroup_size = 256

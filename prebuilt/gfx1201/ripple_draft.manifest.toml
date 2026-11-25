@@ -1,0 +1,1461 @@
+schema_version = 1
+plugin = "ripple_draft"
+arch = "gfx1201"
+source = "crates/saber-kernels/hip/ripple_draft.hip"
+source_sha256 = "32524f28418c4cbb8d889066c43f72107043c973bac6bef44c5ee1aa2dac64e5"
+flags = "--genco --offload-arch=gfx1201 -O3"
+build_hash = "456e101dd0927360be0eb54f7d87d777654b1734af5f4261a55007dd3c045da5"
+hsaco = "ripple_draft.hsaco"
+hsaco_sha256 = "d1cdab53c5d6ed41d596899f1599332bc377ae086dd880efdce42268159026ab"
+
+[[kernel]]
+name = "ripple_act_quant_bf16"
+symbol = "ripple_act_quant_bf16.kd"
+kernarg_segment_size = 32
+kernarg_segment_align = 8
+group_segment_fixed_size = 0
+private_segment_fixed_size = 0
+vgpr_count = 27
+sgpr_count = 11
+wavefront_size = 32
+max_flat_workgroup_size = 256
+
+[[kernel.arg]]
+offset = 0
+size = 8
+value_kind = "global_buffer"
+name = "x"
+
+[[kernel.arg]]
+offset = 8
+size = 8
+value_kind = "global_buffer"
+name = "q"
+
+[[kernel.arg]]
+offset = 16
+size = 8
+value_kind = "global_buffer"
+name = "scales"
+
+[[kernel.arg]]
+offset = 24
+size = 4
+value_kind = "by_value"
+name = "t_rows"
+
+[[kernel.arg]]
+offset = 28
+size = 4
+value_kind = "by_value"
+name = "n"
+
+[[kernel]]
+name = "ripple_add_rms_bf16"
+symbol = "ripple_add_rms_bf16.kd"
+kernarg_segment_size = 52
+kernarg_segment_align = 8
+group_segment_fixed_size = 1024
+private_segment_fixed_size = 0
+vgpr_count = 24
+sgpr_count = 21
+wavefront_size = 32
+max_flat_workgroup_size = 256
+
+[[kernel.arg]]
+offset = 0
+size = 8
+value_kind = "global_buffer"
+name = "input"
+
+[[kernel.arg]]
+offset = 8
+size = 8
+value_kind = "global_buffer"
+name = "residual"
+
+[[kernel.arg]]
+offset = 16
+size = 8
+value_kind = "global_buffer"
+name = "weight"
+
+[[kernel.arg]]
+offset = 24
+size = 8
+value_kind = "global_buffer"
+name = "output"
+
+[[kernel.arg]]
+offset = 32
+size = 8
+value_kind = "global_buffer"
+name = "residual_out"
+
+[[kernel.arg]]
+offset = 40
+size = 4
+value_kind = "by_value"
+name = "rows"
+
+[[kernel.arg]]
+offset = 44
+size = 4
+value_kind = "by_value"
+name = "hidden"
+
+[[kernel.arg]]
+offset = 48
+size = 4
+value_kind = "by_value"
+name = "eps"
+
+[[kernel]]
+name = "ripple_attn_h128_bf16"
+symbol = "ripple_attn_h128_bf16.kd"
+kernarg_segment_size = 52
+kernarg_segment_align = 8
+group_segment_fixed_size = 0
+private_segment_fixed_size = 0
+vgpr_count = 32
+sgpr_count = 26
+wavefront_size = 32
+max_flat_workgroup_size = 32
+
+[[kernel.arg]]
+offset = 0
+size = 8
+value_kind = "global_buffer"
+name = "q"
+
+[[kernel.arg]]
+offset = 8
+size = 8
+value_kind = "global_buffer"
+name = "kc"
+
+[[kernel.arg]]
+offset = 16
+size = 8
+value_kind = "global_buffer"
+name = "vc"
+
+[[kernel.arg]]
+offset = 24
+size = 8
+value_kind = "global_buffer"
+name = "output"
+
+[[kernel.arg]]
+offset = 32
+size = 4
+value_kind = "by_value"
+name = "rows"
+
+[[kernel.arg]]
+offset = 36
+size = 4
+value_kind = "by_value"
+name = "nq"
+
+[[kernel.arg]]
+offset = 40
+size = 4
+value_kind = "by_value"
+name = "nkv"
+
+[[kernel.arg]]
+offset = 44
+size = 4
+value_kind = "by_value"
+name = "start_pos"
+
+[[kernel.arg]]
+offset = 48
+size = 4
+value_kind = "by_value"
+name = "window"
+
+[[kernel]]
+name = "ripple_attn_h128_fp8"
+symbol = "ripple_attn_h128_fp8.kd"
+kernarg_segment_size = 72
+kernarg_segment_align = 8
+group_segment_fixed_size = 0
+private_segment_fixed_size = 0
+vgpr_count = 31
+sgpr_count = 28
+wavefront_size = 32
+max_flat_workgroup_size = 32
+
+[[kernel.arg]]
+offset = 0
+size = 8
+value_kind = "global_buffer"
+name = "q"
+
+[[kernel.arg]]
+offset = 8
+size = 8
+value_kind = "global_buffer"
+name = "kc"
+
+[[kernel.arg]]
+offset = 16
+size = 8
+value_kind = "global_buffer"
+name = "vc"
+
+[[kernel.arg]]
+offset = 24
+size = 8
+value_kind = "global_buffer"
+name = "kscales"
+
+[[kernel.arg]]
+offset = 32
+size = 8
+value_kind = "global_buffer"
+name = "vscales"
+
+[[kernel.arg]]
+offset = 40
+size = 8
+value_kind = "global_buffer"
+name = "output"
+
+[[kernel.arg]]
+offset = 48
+size = 4
+value_kind = "by_value"
+name = "rows"
+
+[[kernel.arg]]
+offset = 52
+size = 4
+value_kind = "by_value"
+name = "nq"
+
+[[kernel.arg]]
+offset = 56
+size = 4
+value_kind = "by_value"
+name = "nkv"
+
+[[kernel.arg]]
+offset = 60
+size = 4
+value_kind = "by_value"
+name = "start_pos"
+
+[[kernel.arg]]
+offset = 64
+size = 4
+value_kind = "by_value"
+name = "window"
+
+[[kernel.arg]]
+offset = 68
+size = 4
+value_kind = "by_value"
+name = "cache_capacity"
+
+[[kernel]]
+name = "ripple_aux_capture_bf16"
+symbol = "ripple_aux_capture_bf16.kd"
+kernarg_segment_size = 28
+kernarg_segment_align = 8
+group_segment_fixed_size = 0
+private_segment_fixed_size = 0
+vgpr_count = 7
+sgpr_count = 9
+wavefront_size = 32
+max_flat_workgroup_size = 256
+
+[[kernel.arg]]
+offset = 0
+size = 8
+value_kind = "global_buffer"
+name = "input"
+
+[[kernel.arg]]
+offset = 8
+size = 8
+value_kind = "global_buffer"
+name = "output"
+
+[[kernel.arg]]
+offset = 16
+size = 4
+value_kind = "by_value"
+name = "rows"
+
+[[kernel.arg]]
+offset = 20
+size = 4
+value_kind = "by_value"
+name = "hidden"
+
+[[kernel.arg]]
+offset = 24
+size = 4
+value_kind = "by_value"
+name = "tap"
+
+[[kernel]]
+name = "ripple_draft_attn_h128_fp8"
+symbol = "ripple_draft_attn_h128_fp8.kd"
+kernarg_segment_size = 72
+kernarg_segment_align = 8
+group_segment_fixed_size = 0
+private_segment_fixed_size = 0
+vgpr_count = 31
+sgpr_count = 28
+wavefront_size = 32
+max_flat_workgroup_size = 32
+
+[[kernel.arg]]
+offset = 0
+size = 8
+value_kind = "global_buffer"
+name = "q"
+
+[[kernel.arg]]
+offset = 8
+size = 8
+value_kind = "global_buffer"
+name = "kc"
+
+[[kernel.arg]]
+offset = 16
+size = 8
+value_kind = "global_buffer"
+name = "vc"
+
+[[kernel.arg]]
+offset = 24
+size = 8
+value_kind = "global_buffer"
+name = "kscales"
+
+[[kernel.arg]]
+offset = 32
+size = 8
+value_kind = "global_buffer"
+name = "vscales"
+
+[[kernel.arg]]
+offset = 40
+size = 8
+value_kind = "global_buffer"
+name = "output"
+
+[[kernel.arg]]
+offset = 48
+size = 4
+value_kind = "by_value"
+name = "rows"
+
+[[kernel.arg]]
+offset = 52
+size = 4
+value_kind = "by_value"
+name = "nq"
+
+[[kernel.arg]]
+offset = 56
+size = 4
+value_kind = "by_value"
+name = "nkv"
+
+[[kernel.arg]]
+offset = 60
+size = 4
+value_kind = "by_value"
+name = "position"
+
+[[kernel.arg]]
+offset = 64
+size = 4
+value_kind = "by_value"
+name = "window"
+
+[[kernel.arg]]
+offset = 68
+size = 4
+value_kind = "by_value"
+name = "cache_capacity"
+
+[[kernel]]
+name = "ripple_draft_conv4_bf16"
+symbol = "ripple_draft_conv4_bf16.kd"
+kernarg_segment_size = 52
+kernarg_segment_align = 8
+group_segment_fixed_size = 0
+private_segment_fixed_size = 0
+vgpr_count = 21
+sgpr_count = 19
+wavefront_size = 32
+max_flat_workgroup_size = 128
+
+[[kernel.arg]]
+offset = 0
+size = 8
+value_kind = "global_buffer"
+name = "x"
+
+[[kernel.arg]]
+offset = 8
+size = 8
+value_kind = "global_buffer"
+name = "coeff"
+
+[[kernel.arg]]
+offset = 16
+size = 8
+value_kind = "global_buffer"
+name = "base"
+
+[[kernel.arg]]
+offset = 24
+size = 8
+value_kind = "global_buffer"
+name = "out"
+
+[[kernel.arg]]
+offset = 32
+size = 4
+value_kind = "by_value"
+name = "t_rows"
+
+[[kernel.arg]]
+offset = 36
+size = 4
+value_kind = "by_value"
+name = "h"
+
+[[kernel.arg]]
+offset = 40
+size = 4
+value_kind = "by_value"
+name = "groups"
+
+[[kernel.arg]]
+offset = 44
+size = 4
+value_kind = "by_value"
+name = "block_size"
+
+[[kernel.arg]]
+offset = 48
+size = 4
+value_kind = "by_value"
+name = "side"
+
+[[kernel]]
+name = "ripple_draft_conv4_quant_bf16"
+symbol = "ripple_draft_conv4_quant_bf16.kd"
+kernarg_segment_size = 60
+kernarg_segment_align = 8
+group_segment_fixed_size = 0
+private_segment_fixed_size = 0
+vgpr_count = 28
+sgpr_count = 19
+wavefront_size = 32
+max_flat_workgroup_size = 128
+
+[[kernel.arg]]
+offset = 0
+size = 8
+value_kind = "global_buffer"
+name = "x"
+
+[[kernel.arg]]
+offset = 8
+size = 8
+value_kind = "global_buffer"
+name = "coeff"
+
+[[kernel.arg]]
+offset = 16
+size = 8
+value_kind = "global_buffer"
+name = "base"
+
+[[kernel.arg]]
+offset = 24
+size = 8
+value_kind = "global_buffer"
+name = "q"
+
+[[kernel.arg]]
+offset = 32
+size = 8
+value_kind = "global_buffer"
+name = "scales"
+
+[[kernel.arg]]
+offset = 40
+size = 4
+value_kind = "by_value"
+name = "t_rows"
+
+[[kernel.arg]]
+offset = 44
+size = 4
+value_kind = "by_value"
+name = "h"
+
+[[kernel.arg]]
+offset = 48
+size = 4
+value_kind = "by_value"
+name = "groups"
+
+[[kernel.arg]]
+offset = 52
+size = 4
+value_kind = "by_value"
+name = "block_size"
+
+[[kernel.arg]]
+offset = 56
+size = 4
+value_kind = "by_value"
+name = "side"
+
+[[kernel]]
+name = "ripple_draft_ctx_append_fp8"
+symbol = "ripple_draft_ctx_append_fp8.kd"
+kernarg_segment_size = 96
+kernarg_segment_align = 8
+group_segment_fixed_size = 0
+private_segment_fixed_size = 0
+vgpr_count = 32
+sgpr_count = 40
+wavefront_size = 32
+max_flat_workgroup_size = 32
+
+[[kernel.arg]]
+offset = 0
+size = 8
+value_kind = "global_buffer"
+name = "context_kv"
+
+[[kernel.arg]]
+offset = 8
+size = 8
+value_kind = "global_buffer"
+name = "kw"
+
+[[kernel.arg]]
+offset = 16
+size = 8
+value_kind = "global_buffer"
+name = "cos_sin"
+
+[[kernel.arg]]
+offset = 24
+size = 8
+value_kind = "global_buffer"
+name = "positions"
+
+[[kernel.arg]]
+offset = 32
+size = 8
+value_kind = "global_buffer"
+name = "kc"
+
+[[kernel.arg]]
+offset = 40
+size = 8
+value_kind = "global_buffer"
+name = "vc"
+
+[[kernel.arg]]
+offset = 48
+size = 8
+value_kind = "global_buffer"
+name = "kscales"
+
+[[kernel.arg]]
+offset = 56
+size = 8
+value_kind = "global_buffer"
+name = "vscales"
+
+[[kernel.arg]]
+offset = 64
+size = 4
+value_kind = "by_value"
+name = "rows"
+
+[[kernel.arg]]
+offset = 68
+size = 4
+value_kind = "by_value"
+name = "nkv"
+
+[[kernel.arg]]
+offset = 72
+size = 4
+value_kind = "by_value"
+name = "context_width"
+
+[[kernel.arg]]
+offset = 76
+size = 4
+value_kind = "by_value"
+name = "layer_kv_offset"
+
+[[kernel.arg]]
+offset = 80
+size = 4
+value_kind = "by_value"
+name = "eps"
+
+[[kernel.arg]]
+offset = 84
+size = 4
+value_kind = "by_value"
+name = "apply_rope"
+
+[[kernel.arg]]
+offset = 88
+size = 4
+value_kind = "by_value"
+name = "window"
+
+[[kernel.arg]]
+offset = 92
+size = 4
+value_kind = "by_value"
+name = "cache_capacity"
+
+[[kernel]]
+name = "ripple_draft_qk_rope_h128"
+symbol = "ripple_draft_qk_rope_h128.kd"
+kernarg_segment_size = 84
+kernarg_segment_align = 8
+group_segment_fixed_size = 0
+private_segment_fixed_size = 0
+vgpr_count = 41
+sgpr_count = 26
+wavefront_size = 32
+max_flat_workgroup_size = 32
+
+[[kernel.arg]]
+offset = 0
+size = 8
+value_kind = "global_buffer"
+name = "qkv"
+
+[[kernel.arg]]
+offset = 8
+size = 8
+value_kind = "global_buffer"
+name = "qw"
+
+[[kernel.arg]]
+offset = 16
+size = 8
+value_kind = "global_buffer"
+name = "kw"
+
+[[kernel.arg]]
+offset = 24
+size = 8
+value_kind = "global_buffer"
+name = "cos_sin"
+
+[[kernel.arg]]
+offset = 32
+size = 8
+value_kind = "global_buffer"
+name = "positions"
+
+[[kernel.arg]]
+offset = 40
+size = 8
+value_kind = "global_buffer"
+name = "q_out"
+
+[[kernel.arg]]
+offset = 48
+size = 8
+value_kind = "global_buffer"
+name = "k_out"
+
+[[kernel.arg]]
+offset = 56
+size = 8
+value_kind = "global_buffer"
+name = "v_out"
+
+[[kernel.arg]]
+offset = 64
+size = 4
+value_kind = "by_value"
+name = "rows"
+
+[[kernel.arg]]
+offset = 68
+size = 4
+value_kind = "by_value"
+name = "nq"
+
+[[kernel.arg]]
+offset = 72
+size = 4
+value_kind = "by_value"
+name = "nkv"
+
+[[kernel.arg]]
+offset = 76
+size = 4
+value_kind = "by_value"
+name = "eps"
+
+[[kernel.arg]]
+offset = 80
+size = 4
+value_kind = "by_value"
+name = "apply_rope"
+
+[[kernel]]
+name = "ripple_draft_score32_r256"
+symbol = "ripple_draft_score32_r256.kd"
+kernarg_segment_size = 72
+kernarg_segment_align = 8
+group_segment_fixed_size = 0
+private_segment_fixed_size = 0
+vgpr_count = 31
+sgpr_count = 20
+wavefront_size = 32
+max_flat_workgroup_size = 32
+
+[[kernel.arg]]
+offset = 0
+size = 8
+value_kind = "global_buffer"
+name = "pred_cb"
+
+[[kernel.arg]]
+offset = 8
+size = 8
+value_kind = "global_buffer"
+name = "succ_cb"
+
+[[kernel.arg]]
+offset = 16
+size = 8
+value_kind = "global_buffer"
+name = "cand"
+
+[[kernel.arg]]
+offset = 24
+size = 8
+value_kind = "global_buffer"
+name = "anchor"
+
+[[kernel.arg]]
+offset = 32
+size = 8
+value_kind = "global_buffer"
+name = "unary"
+
+[[kernel.arg]]
+offset = 40
+size = 8
+value_kind = "global_buffer"
+name = "hidden"
+
+[[kernel.arg]]
+offset = 48
+size = 8
+value_kind = "global_buffer"
+name = "out"
+
+[[kernel.arg]]
+offset = 56
+size = 4
+value_kind = "by_value"
+name = "bl"
+
+[[kernel.arg]]
+offset = 60
+size = 4
+value_kind = "by_value"
+name = "l_len"
+
+[[kernel.arg]]
+offset = 64
+size = 4
+value_kind = "by_value"
+name = "r"
+
+[[kernel.arg]]
+offset = 68
+size = 4
+value_kind = "by_value"
+name = "k_top"
+
+[[kernel]]
+name = "ripple_draft_swiglu_bf16"
+symbol = "ripple_draft_swiglu_bf16.kd"
+kernarg_segment_size = 24
+kernarg_segment_align = 8
+group_segment_fixed_size = 0
+private_segment_fixed_size = 0
+vgpr_count = 10
+sgpr_count = 8
+wavefront_size = 32
+max_flat_workgroup_size = 256
+
+[[kernel.arg]]
+offset = 0
+size = 8
+value_kind = "global_buffer"
+name = "gate_up"
+
+[[kernel.arg]]
+offset = 8
+size = 8
+value_kind = "global_buffer"
+name = "output"
+
+[[kernel.arg]]
+offset = 16
+size = 4
+value_kind = "by_value"
+name = "rows"
+
+[[kernel.arg]]
+offset = 20
+size = 4
+value_kind = "by_value"
+name = "width"
+
+[[kernel]]
+name = "ripple_draft_swiglu_quant_bf16"
+symbol = "ripple_draft_swiglu_quant_bf16.kd"
+kernarg_segment_size = 32
+kernarg_segment_align = 8
+group_segment_fixed_size = 0
+private_segment_fixed_size = 0
+vgpr_count = 34
+sgpr_count = 18
+wavefront_size = 32
+max_flat_workgroup_size = 256
+
+[[kernel.arg]]
+offset = 0
+size = 8
+value_kind = "global_buffer"
+name = "gate_up"
+
+[[kernel.arg]]
+offset = 8
+size = 8
+value_kind = "global_buffer"
+name = "q"
+
+[[kernel.arg]]
+offset = 16
+size = 8
+value_kind = "global_buffer"
+name = "scales"
+
+[[kernel.arg]]
+offset = 24
+size = 4
+value_kind = "by_value"
+name = "t_rows"
+
+[[kernel.arg]]
+offset = 28
+size = 4
+value_kind = "by_value"
+name = "n"
+
+[[kernel]]
+name = "ripple_draft_top32_bf16"
+symbol = "ripple_draft_top32_bf16.kd"
+kernarg_segment_size = 36
+kernarg_segment_align = 8
+group_segment_fixed_size = 0
+private_segment_fixed_size = 0
+vgpr_count = 15
+sgpr_count = 20
+wavefront_size = 32
+max_flat_workgroup_size = 32
+
+[[kernel.arg]]
+offset = 0
+size = 8
+value_kind = "global_buffer"
+name = "x"
+
+[[kernel.arg]]
+offset = 8
+size = 8
+value_kind = "global_buffer"
+name = "vals"
+
+[[kernel.arg]]
+offset = 16
+size = 8
+value_kind = "global_buffer"
+name = "idx"
+
+[[kernel.arg]]
+offset = 24
+size = 4
+value_kind = "by_value"
+name = "rows"
+
+[[kernel.arg]]
+offset = 28
+size = 4
+value_kind = "by_value"
+name = "n"
+
+[[kernel.arg]]
+offset = 32
+size = 4
+value_kind = "by_value"
+name = "k"
+
+[[kernel]]
+name = "ripple_gate_mul_bf16"
+symbol = "ripple_gate_mul_bf16.kd"
+kernarg_segment_size = 28
+kernarg_segment_align = 8
+group_segment_fixed_size = 0
+private_segment_fixed_size = 0
+vgpr_count = 9
+sgpr_count = 10
+wavefront_size = 32
+max_flat_workgroup_size = 256
+
+[[kernel.arg]]
+offset = 0
+size = 8
+value_kind = "global_buffer"
+name = "attention"
+
+[[kernel.arg]]
+offset = 8
+size = 8
+value_kind = "global_buffer"
+name = "gate"
+
+[[kernel.arg]]
+offset = 16
+size = 8
+value_kind = "global_buffer"
+name = "output"
+
+[[kernel.arg]]
+offset = 24
+size = 4
+value_kind = "by_value"
+name = "elements"
+
+[[kernel]]
+name = "ripple_kv_append_h128_bf16"
+symbol = "ripple_kv_append_h128_bf16.kd"
+kernarg_segment_size = 48
+kernarg_segment_align = 8
+group_segment_fixed_size = 0
+private_segment_fixed_size = 0
+vgpr_count = 18
+sgpr_count = 26
+wavefront_size = 32
+max_flat_workgroup_size = 256
+
+[[kernel.arg]]
+offset = 0
+size = 8
+value_kind = "global_buffer"
+name = "key"
+
+[[kernel.arg]]
+offset = 8
+size = 8
+value_kind = "global_buffer"
+name = "value"
+
+[[kernel.arg]]
+offset = 16
+size = 8
+value_kind = "global_buffer"
+name = "kc"
+
+[[kernel.arg]]
+offset = 24
+size = 8
+value_kind = "global_buffer"
+name = "vc"
+
+[[kernel.arg]]
+offset = 32
+size = 8
+value_kind = "global_buffer"
+name = "slots"
+
+[[kernel.arg]]
+offset = 40
+size = 4
+value_kind = "by_value"
+name = "rows"
+
+[[kernel.arg]]
+offset = 44
+size = 4
+value_kind = "by_value"
+name = "nkv"
+
+[[kernel]]
+name = "ripple_kv_append_h128_fp8"
+symbol = "ripple_kv_append_h128_fp8.kd"
+kernarg_segment_size = 72
+kernarg_segment_align = 8
+group_segment_fixed_size = 0
+private_segment_fixed_size = 0
+vgpr_count = 57
+sgpr_count = 38
+wavefront_size = 32
+max_flat_workgroup_size = 32
+
+[[kernel.arg]]
+offset = 0
+size = 8
+value_kind = "global_buffer"
+name = "key"
+
+[[kernel.arg]]
+offset = 8
+size = 8
+value_kind = "global_buffer"
+name = "value"
+
+[[kernel.arg]]
+offset = 16
+size = 8
+value_kind = "global_buffer"
+name = "kc"
+
+[[kernel.arg]]
+offset = 24
+size = 8
+value_kind = "global_buffer"
+name = "vc"
+
+[[kernel.arg]]
+offset = 32
+size = 8
+value_kind = "global_buffer"
+name = "kscales"
+
+[[kernel.arg]]
+offset = 40
+size = 8
+value_kind = "global_buffer"
+name = "vscales"
+
+[[kernel.arg]]
+offset = 48
+size = 8
+value_kind = "global_buffer"
+name = "slots"
+
+[[kernel.arg]]
+offset = 56
+size = 4
+value_kind = "by_value"
+name = "rows"
+
+[[kernel.arg]]
+offset = 60
+size = 4
+value_kind = "by_value"
+name = "nkv"
+
+[[kernel.arg]]
+offset = 64
+size = 4
+value_kind = "by_value"
+name = "window"
+
+[[kernel.arg]]
+offset = 68
+size = 4
+value_kind = "by_value"
+name = "cache_capacity"
+
+[[kernel]]
+name = "ripple_postnorm_residual_bf16"
+symbol = "ripple_postnorm_residual_bf16.kd"
+kernarg_segment_size = 44
+kernarg_segment_align = 8
+group_segment_fixed_size = 1024
+private_segment_fixed_size = 0
+vgpr_count = 27
+sgpr_count = 19
+wavefront_size = 32
+max_flat_workgroup_size = 256
+
+[[kernel.arg]]
+offset = 0
+size = 8
+value_kind = "global_buffer"
+name = "input"
+
+[[kernel.arg]]
+offset = 8
+size = 8
+value_kind = "global_buffer"
+name = "residual"
+
+[[kernel.arg]]
+offset = 16
+size = 8
+value_kind = "global_buffer"
+name = "weight"
+
+[[kernel.arg]]
+offset = 24
+size = 8
+value_kind = "global_buffer"
+name = "output"
+
+[[kernel.arg]]
+offset = 32
+size = 4
+value_kind = "by_value"
+name = "rows"
+
+[[kernel.arg]]
+offset = 36
+size = 4
+value_kind = "by_value"
+name = "hidden"
+
+[[kernel.arg]]
+offset = 40
+size = 4
+value_kind = "by_value"
+name = "eps"
+
+[[kernel]]
+name = "ripple_qk_norm_rope_h128"
+symbol = "ripple_qk_norm_rope_h128.kd"
+kernarg_segment_size = 84
+kernarg_segment_align = 8
+group_segment_fixed_size = 0
+private_segment_fixed_size = 0
+vgpr_count = 41
+sgpr_count = 31
+wavefront_size = 32
+max_flat_workgroup_size = 32
+
+[[kernel.arg]]
+offset = 0
+size = 8
+value_kind = "global_buffer"
+name = "q"
+
+[[kernel.arg]]
+offset = 8
+size = 8
+value_kind = "global_buffer"
+name = "k"
+
+[[kernel.arg]]
+offset = 16
+size = 8
+value_kind = "global_buffer"
+name = "qw"
+
+[[kernel.arg]]
+offset = 24
+size = 8
+value_kind = "global_buffer"
+name = "kw"
+
+[[kernel.arg]]
+offset = 32
+size = 8
+value_kind = "global_buffer"
+name = "cos_sin"
+
+[[kernel.arg]]
+offset = 40
+size = 8
+value_kind = "global_buffer"
+name = "positions"
+
+[[kernel.arg]]
+offset = 48
+size = 8
+value_kind = "global_buffer"
+name = "q_out"
+
+[[kernel.arg]]
+offset = 56
+size = 8
+value_kind = "global_buffer"
+name = "k_out"
+
+[[kernel.arg]]
+offset = 64
+size = 4
+value_kind = "by_value"
+name = "rows"
+
+[[kernel.arg]]
+offset = 68
+size = 4
+value_kind = "by_value"
+name = "nq"
+
+[[kernel.arg]]
+offset = 72
+size = 4
+value_kind = "by_value"
+name = "nkv"
+
+[[kernel.arg]]
+offset = 76
+size = 4
+value_kind = "by_value"
+name = "eps"
+
+[[kernel.arg]]
+offset = 80
+size = 4
+value_kind = "by_value"
+name = "apply_rope"
+
+[[kernel]]
+name = "ripple_rms_quant_bf16"
+symbol = "ripple_rms_quant_bf16.kd"
+kernarg_segment_size = 44
+kernarg_segment_align = 8
+group_segment_fixed_size = 1024
+private_segment_fixed_size = 0
+vgpr_count = 13
+sgpr_count = 30
+wavefront_size = 32
+max_flat_workgroup_size = 256
+
+[[kernel.arg]]
+offset = 0
+size = 8
+value_kind = "global_buffer"
+name = "input"
+
+[[kernel.arg]]
+offset = 8
+size = 8
+value_kind = "global_buffer"
+name = "weight"
+
+[[kernel.arg]]
+offset = 16
+size = 8
+value_kind = "global_buffer"
+name = "output"
+
+[[kernel.arg]]
+offset = 24
+size = 8
+value_kind = "global_buffer"
+name = "scales"
+
+[[kernel.arg]]
+offset = 32
+size = 4
+value_kind = "by_value"
+name = "rows"
+
+[[kernel.arg]]
+offset = 36
+size = 4
+value_kind = "by_value"
+name = "hidden"
+
+[[kernel.arg]]
+offset = 40
+size = 4
+value_kind = "by_value"
+name = "eps"
+
+[[kernel]]
+name = "ripple_rmsnorm_bf16"
+symbol = "ripple_rmsnorm_bf16.kd"
+kernarg_segment_size = 36
+kernarg_segment_align = 8
+group_segment_fixed_size = 1024
+private_segment_fixed_size = 0
+vgpr_count = 21
+sgpr_count = 18
+wavefront_size = 32
+max_flat_workgroup_size = 256
+
+[[kernel.arg]]
+offset = 0
+size = 8
+value_kind = "global_buffer"
+name = "input"
+
+[[kernel.arg]]
+offset = 8
+size = 8
+value_kind = "global_buffer"
+name = "weight"
+
+[[kernel.arg]]
+offset = 16
+size = 8
+value_kind = "global_buffer"
+name = "output"
+
+[[kernel.arg]]
+offset = 24
+size = 4
+value_kind = "by_value"
+name = "rows"
+
+[[kernel.arg]]
+offset = 28
+size = 4
+value_kind = "by_value"
+name = "hidden"
+
+[[kernel.arg]]
+offset = 32
+size = 4
+value_kind = "by_value"
+name = "eps"
+
+[[kernel]]
+name = "ripple_scale_bf16"
+symbol = "ripple_scale_bf16.kd"
+kernarg_segment_size = 16
+kernarg_segment_align = 8
+group_segment_fixed_size = 0
+private_segment_fixed_size = 0
+vgpr_count = 5
+sgpr_count = 6
+wavefront_size = 32
+max_flat_workgroup_size = 256
+
+[[kernel.arg]]
+offset = 0
+size = 8
+value_kind = "global_buffer"
+name = "values"
+
+[[kernel.arg]]
+offset = 8
+size = 4
+value_kind = "by_value"
+name = "elements"
+
+[[kernel.arg]]
+offset = 12
+size = 4
+value_kind = "by_value"
+name = "scale"
+
+[[kernel]]
+name = "ripple_swiglu_quant_bf16"
+symbol = "ripple_swiglu_quant_bf16.kd"
+kernarg_segment_size = 36
+kernarg_segment_align = 8
+group_segment_fixed_size = 1024
+private_segment_fixed_size = 0
+vgpr_count = 18
+sgpr_count = 22
+wavefront_size = 32
+max_flat_workgroup_size = 256
+
+[[kernel.arg]]
+offset = 0
+size = 8
+value_kind = "global_buffer"
+name = "gate_up"
+
+[[kernel.arg]]
+offset = 8
+size = 8
+value_kind = "global_buffer"
+name = "output"
+
+[[kernel.arg]]
+offset = 16
+size = 8
+value_kind = "global_buffer"
+name = "scales"
+
+[[kernel.arg]]
+offset = 24
+size = 4
+value_kind = "by_value"
+name = "rows"
+
+[[kernel.arg]]
+offset = 28
+size = 4
+value_kind = "by_value"
+name = "width"
+
+[[kernel.arg]]
+offset = 32
+size = 4
+value_kind = "by_value"
+name = "clamp_threshold"
+
+[[kernel]]
+name = "ripple_value_lerp_bf16"
+symbol = "ripple_value_lerp_bf16.kd"
+kernarg_segment_size = 36
+kernarg_segment_align = 8
+group_segment_fixed_size = 0
+private_segment_fixed_size = 0
+vgpr_count = 10
+sgpr_count = 10
+wavefront_size = 32
+max_flat_workgroup_size = 256
+
+[[kernel.arg]]
+offset = 0
+size = 8
+value_kind = "global_buffer"
+name = "initial"
+
+[[kernel.arg]]
+offset = 8
+size = 8
+value_kind = "global_buffer"
+name = "current"
+
+[[kernel.arg]]
+offset = 16
+size = 8
+value_kind = "global_buffer"
+name = "lambda"
+
+[[kernel.arg]]
+offset = 24
+size = 8
+value_kind = "global_buffer"
+name = "output"
+
+[[kernel.arg]]
+offset = 32
+size = 4
+value_kind = "by_value"
+name = "elements"

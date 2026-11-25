@@ -884,6 +884,9 @@ pub(crate) fn chat_kwargs(state: &ServerState, req: &ChatCompletionRequest) -> M
             .entry("reasoning_effort")
             .or_insert_with(|| Value::String(e.clone()));
     }
+    if kwargs.get("reasoning_effort").and_then(Value::as_str) == Some("none") {
+        kwargs.insert("enable_thinking".into(), Value::Bool(false));
+    }
     // A server whose default is thinking OFF (FN14's `--fn-thinking off`) tells the TEMPLATE too,
     // not only the parser: a request that does not say renders with `enable_thinking=false`. The
     // default-on server (every 27B boot) leaves the kwargs as sent.
@@ -1022,6 +1025,15 @@ async fn chat_completions(
         prompt_ids = saber_vision_input::expand_image_pads(&prompt_ids, tokens)
             .map_err(|e| refuse(e.into()))?;
     }
+    let conversation_len = if images.is_none() && req.add_generation_prompt.unwrap_or(true) {
+        let mut conversation_req = req.clone();
+        conversation_req.add_generation_prompt = Some(false);
+        let conversation_ids = render_chat_ids(&state, messages, &conversation_req, &kwargs)?;
+        (conversation_ids.len() < prompt_ids.len() && prompt_ids.starts_with(&conversation_ids))
+            .then_some(conversation_ids.len())
+    } else {
+        None
+    };
     let params = sampling_from_chat(&req, &state)?;
     params.check_context(prompt_ids.len(), state.limits)?;
 
@@ -1035,7 +1047,12 @@ async fn chat_completions(
     };
     let image_count = images.as_ref().map_or(0, |(b, _)| b.grids.len() as u32);
     let submission = match images {
-        None => state.engine.submit(engine_request)?,
+        None => match conversation_len {
+            Some(len) => state
+                .engine
+                .submit_with_conversation_len(engine_request, len)?,
+            None => state.engine.submit(engine_request)?,
+        },
         Some((batch, _)) => {
             let (count, patches) = (batch.grids.len() as u64, batch.patches());
             let sub = state.engine.submit_with_images(engine_request, batch)?;
@@ -1220,7 +1237,8 @@ async fn chat_blocking(
         choices,
         service_tier: None,
         system_fingerprint: state.system_fingerprint.clone(),
-        usage: Usage::new(prompt_tokens as u64, completion_tokens),
+        usage: Usage::new(prompt_tokens as u64, completion_tokens)
+            .with_cached_tokens(track.cached_tokens()),
         prompt_logprobs,
         prompt_token_ids: ids_back,
     })
@@ -1440,10 +1458,10 @@ fn chat_stream(
                 created,
                 model: model.clone(),
                 choices: Vec::new(),
-                usage: Some(StreamUsage::from(Usage::new(
-                    prompt_tokens as u64,
-                    completion_tokens,
-                ))),
+                usage: Some(StreamUsage::from(
+                    Usage::new(prompt_tokens as u64, completion_tokens)
+                        .with_cached_tokens(track.cached_tokens()),
+                )),
                 system_fingerprint: Some(state.system_fingerprint.clone()),
                 prompt_token_ids: None,
             };
@@ -1766,7 +1784,8 @@ async fn completions(
         model,
         choices,
         system_fingerprint: state.system_fingerprint.clone(),
-        usage: Usage::new(prompt_ids.len() as u64, completion_tokens),
+        usage: Usage::new(prompt_ids.len() as u64, completion_tokens)
+            .with_cached_tokens(track.cached_tokens()),
     })
     .into_response())
 }
@@ -1981,10 +2000,10 @@ fn completion_stream(
                 created,
                 model: model.clone(),
                 choices: Vec::new(),
-                usage: Some(StreamUsage::from(Usage::new(
-                    prompt_tokens as u64,
-                    completion_tokens,
-                ))),
+                usage: Some(StreamUsage::from(
+                    Usage::new(prompt_tokens as u64, completion_tokens)
+                        .with_cached_tokens(track.cached_tokens()),
+                )),
                 system_fingerprint: Some(state.system_fingerprint.clone()),
             };
             if send_chunk(&tx, &usage_chunk).await.is_err() {

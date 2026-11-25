@@ -43,6 +43,20 @@ def lane8_reference(v) -> np.float32:
 
 
 class Numerics(unittest.TestCase):
+    def test_partial_pack_ignores_unplanned_nonreplicated_tensors(self):
+        norm = bp.Tensor("model.norm.weight", "unused", 0, 4, "BF16", [2])
+        head = bp.Tensor("lm_head.weight", "unused", 0, 8, "BF16", [2, 2])
+        source = {"weight": norm.name, "quant": "as_stored", "scale": None,
+                  "global_scale": None, "input_scale": None}
+        plan = {"records": [{"name": norm.name, "layout_id": 0, "dtype": "BF16",
+                             "shard_kind": "Replicated", "shape": [2], "transformed": False,
+                             "sources": [source]}]}
+        tensors = {norm.name: norm, head.name: head}
+        rows, _ = bp.build_records(plan, tensors, 1, "model.norm", set(tensors))
+        self.assertEqual([row["name"] for row in rows], [norm.name])
+        with self.assertRaisesRegex(SystemExit, "not Replicated"):
+            bp.build_records(plan, tensors, 1, None, set(tensors))
+
     def test_e2m1_rounds_to_nearest_ties_to_even_code_and_saturates(self):
         y = np.array([0, .24, .25, .26, .74, .75, 1.25, 1.75, 2.5, 3.5, 5.0, 5.01, 9, 1e30], F32)
         want = [0, 0, 0, 1, 1, 2, 2, 4, 4, 6, 6, 7, 7, 7]
@@ -141,6 +155,51 @@ class Numerics(unittest.TestCase):
         self.assertTrue(np.isnan(bp.E4M3[0x7F]) and np.isnan(bp.E4M3[0xFF]))
         self.assertEqual(float(bp.E4M3[0xB8]), -1.0)
 
+    def test_e4m3_encoding_is_nearest_even_and_preserves_sign(self):
+        values = bp.E4M3[:127]
+        x = np.concatenate([
+            np.linspace(-448, 448, 1001, dtype=F32),
+            ((values[:-1] + values[1:]) / 2).astype(F32),
+            np.array([0.0, -0.0, 1000.0, -1000.0], F32),
+        ])
+        got = bp.f32_to_e4m3(x)
+        for value, code in zip(x, got):
+            magnitude = min(abs(float(value)), 448.0)
+            expected = min(range(127), key=lambda c: (abs(float(values[c]) - magnitude), c & 1))
+            if np.signbit(value):
+                expected |= 0x80
+            self.assertEqual(int(code), expected)
+
+    def test_fp8_preshuffle_is_the_kernel_fragment_layout(self):
+        codes = np.arange(16 * 32, dtype=np.uint16).astype(np.uint8).reshape(16, 32)
+        got = bp.fp8_preshuffle(codes)
+        want = codes.reshape(1, 16, 2, 16).transpose(0, 2, 1, 3).reshape(1, 512)
+        np.testing.assert_array_equal(got, want)
+        self.assertEqual(got[0, :16].tolist(), list(range(16)))
+        self.assertEqual(got[0, 16:32].tolist(), list(range(32, 48)))
+        self.assertEqual(got[0, 256:272].tolist(), list(range(16, 32)))
+
+    def test_raw_modelopt_global_scale_multiplies_instead_of_dividing(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "weights.bin")
+            scale_byte = np.flatnonzero(bp.E4M3 == 0.5).item()
+            with open(path, "wb") as f:
+                f.write(bytes([0x22] * 8 + [scale_byte]) + F32(2.0).tobytes())
+            w = bp.Tensor("w", path, 0, 8, "U8", [1, 8])
+            s = bp.Tensor("s", path, 8, 1, "F8_E4M3", [1, 1])
+            g = bp.Tensor("g", path, 9, 4, "F32", [])
+            old = bp._G.copy()
+            bp._G.update(tensors={"w": w, "s": s, "g": g}, fds={}, cfg={})
+            try:
+                src = {"weight": "w", "scale": "s", "global_scale": "g"}
+                modelopt = bp.dequant_rows(dict(src, quant="nvfp4_modelopt"), "Replicated", 0, 1, 0, 1)
+                compressed = bp.dequant_rows(dict(src, quant="nvfp4"), "Replicated", 0, 1, 0, 1)
+            finally:
+                bp._G.clear()
+                bp._G.update(old)
+            np.testing.assert_array_equal(modelopt, np.ones((1, 16), F32))
+            np.testing.assert_array_equal(compressed, np.full((1, 16), 0.25, F32))
+
 
 class Format(unittest.TestCase):
     def test_writer_layout_and_digests(self):
@@ -200,6 +259,9 @@ class Format(unittest.TestCase):
             self.assertIn(k, bp.SHARD_OF_NAME)
         self.assertEqual(bp.policy_kind("model.language_model.layers.7.mlp.down_proj.weight_packed"),
                          "Dim1")
+        self.assertEqual(bp.policy_kind("layers.3.self_attn.q_proj.weight"), "Dim0")
+        self.assertEqual(bp.policy_kind("layers.3.mlp.down_proj.weight"), "Dim1")
+        self.assertEqual(bp.policy_kind("candidate_selector.predecessor_codebook"), "Replicated")
         with self.assertRaises(SystemExit):
             bp.policy_kind("model.language_model.layers.7.mystery.weight")
 

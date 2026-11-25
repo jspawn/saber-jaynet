@@ -1,5 +1,5 @@
 // Saber gated-delta-net kernels, CLEANROOM-2 (CR2-3c): the 27B batched decode in replay form, operands read from
-// global per row (spec 2.10.1): the law (round after the replay), the no-round control, and materialize. Body in
+// global per row (spec 2.10.1): the law (round after every row), the no-round control, and materialize. Body in
 // sgdn_replay.h; this file is the instantiation table.
 #include "sgdn_replay.h"
 

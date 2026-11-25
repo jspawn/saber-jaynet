@@ -58,6 +58,7 @@ mod ledger_law;
 mod load;
 mod models;
 mod npy;
+mod occamy;
 mod park_bench;
 mod plane_flags;
 mod ragged_attn_gate;
@@ -1093,6 +1094,32 @@ enum Cmd {
         /// snapshot-law chain, both on the f16 stored state
         #[arg(long)]
         gdn_replay: bool,
+
+        /// Seed the prompt single-row, then compare its last --spec forced inputs at width --spec
+        /// against the same inputs single-row
+        #[arg(long)]
+        forced_chain: bool,
+
+        /// With --forced-chain: seed the prefix through this padded prefill bucket instead of
+        /// single-row decode steps
+        #[arg(long, default_value_t = 0)]
+        forced_prefill: u32,
+
+        /// Tokens to feed through that prefill (0 = the whole seed)
+        #[arg(long, default_value_t = 0)]
+        forced_prefill_tokens: u32,
+
+        /// Width of full decode blocks in the seed (1 or --spec; 0 = 1)
+        #[arg(long, default_value_t = 0)]
+        forced_seed_width: u32,
+
+        /// Recorded speculative seed: token_ids and one acceptance count per verify step
+        #[arg(long)]
+        forced_schedule: Option<PathBuf>,
+
+        /// Use the server's layer-slot reuse and batch-invariant attention plan options
+        #[arg(long)]
+        server_plan: bool,
     },
 
     /// The two-rank all-reduce gate: both cards, IPC scratch, through the engine's Launcher
@@ -1386,6 +1413,136 @@ enum Cmd {
     /// all 2^32 patterns (+ the card probe's hash table), the walk + distribution cases with the
     /// real sampler's answers. No GPU.
     Fn119Oracle(flashnext::dstep::OracleArgs),
+
+    /// Generate the small Occamy parity inputs and references without Python. No GPU.
+    OccamyReference {
+        #[arg(long)]
+        out: PathBuf,
+    },
+
+    /// Run the independent full-model Occamy CPU reference and save a residual trace. No GPU.
+    OccamyQuality {
+        #[arg(long, default_value = "/srv/models/radconv/occamy-1.0")]
+        checkpoint: PathBuf,
+        #[arg(long)]
+        out: PathBuf,
+        #[arg(long, value_delimiter = ',')]
+        tokens: Vec<u32>,
+        #[arg(long, default_value_t = 1)]
+        decode: usize,
+    },
+
+    /// Run Occamy's small GQA8 and BF16 MoE GPU parity cases.
+    OccamyProbe {
+        #[arg(long)]
+        data: PathBuf,
+        #[arg(long, default_value = "prebuilt/gfx1201")]
+        prebuilt: PathBuf,
+        #[arg(long, default_value_t = 0)]
+        device: i32,
+        #[arg(long, default_value = "all")]
+        mode: String,
+        #[arg(long, default_value_t = 20)]
+        iters: u32,
+        #[arg(long, default_value = DEFAULT_HIP_SONAME, help = HIP_LIB_HELP)]
+        hip_lib: String,
+    },
+
+    /// Execute Occamy's real layer-0/layer-3 pack records against Rust references.
+    OccamyPackProbe {
+        #[arg(long)]
+        pack: PathBuf,
+        #[arg(long)]
+        fp8_experts: Option<PathBuf>,
+        #[arg(long, default_value = "prebuilt/gfx1201")]
+        prebuilt: PathBuf,
+        #[arg(long, default_value_t = 0)]
+        device: i32,
+        #[arg(long, default_value = "all")]
+        mode: String,
+        #[arg(long, default_value = DEFAULT_HIP_SONAME, help = HIP_LIB_HELP)]
+        hip_lib: String,
+    },
+
+    /// Execute Occamy's full TP2 model with persistent prefill/decode state.
+    OccamyExec {
+        #[arg(long, default_value = "/srv/saber-fork/packs/occamy-bf16-all-layers")]
+        layers: PathBuf,
+        #[arg(long, default_value = "/srv/saber-fork/packs/occamy-bf16-globals")]
+        globals: PathBuf,
+        /// Optional additive official FP8 routed-expert pack; dense/shared weights stay BF16.
+        #[arg(long)]
+        fp8_experts: Option<PathBuf>,
+        /// Optional separate BF16 MTP drafter for greedy speculative decoding.
+        #[arg(long)]
+        mtp: Option<PathBuf>,
+        #[arg(long, default_value_t = 2)]
+        spec_depth: usize,
+        #[arg(long, default_value = "/srv/models/radconv/occamy-1.0")]
+        checkpoint: PathBuf,
+        #[arg(long, default_value = "prebuilt/gfx1201")]
+        prebuilt: PathBuf,
+        #[arg(long, default_value_t = 0)]
+        device: i32,
+        #[arg(long, value_delimiter = ',')]
+        tokens: Vec<u32>,
+        /// Harness-only alternative to --tokens: generate IDs 1..=N without a huge argv.
+        #[arg(long)]
+        token_end: Option<u32>,
+        #[arg(long, default_value_t = 1)]
+        decode: u32,
+        #[arg(long, default_value_t = 8192)]
+        max_ctx: u32,
+        #[arg(long, default_value_t = 64)]
+        max_rows: usize,
+        #[arg(long, default_value_t = 1)]
+        max_requests: usize,
+        /// Per-rank device memory for exact-token prefix snapshots; 0 disables caching.
+        #[arg(long, default_value_t = 4096)]
+        prefix_cache_mib: u64,
+        #[arg(long, default_value = "127.0.0.1")]
+        host: String,
+        #[arg(long)]
+        serve: Option<u16>,
+        #[arg(long, default_value = "occamy-1.0")]
+        served_name: String,
+        #[arg(long, default_value_t = 0, hide = true)]
+        rank: u32,
+        #[arg(long, default_value_t = 0, hide = true)]
+        peer_port: u16,
+        #[arg(long)]
+        trace_layers: bool,
+        #[arg(long)]
+        quality_reference: Option<PathBuf>,
+        #[arg(long, default_value = DEFAULT_HIP_SONAME, help = HIP_LIB_HELP)]
+        hip_lib: String,
+    },
+
+    /// Build or validate Occamy's BF16 TP2 spike or all-layer pack. No GPU.
+    OccamyPack {
+        #[arg(long, default_value = "/srv/models/radconv/occamy-1.0")]
+        checkpoint: PathBuf,
+        #[arg(long)]
+        out: PathBuf,
+        #[arg(long)]
+        dry_run: bool,
+        #[arg(long)]
+        all_layers: bool,
+        #[arg(long)]
+        globals: bool,
+    },
+
+    /// Build Occamy's additive official FP8 routed-expert TP2 pack. No GPU.
+    OccamyFp8Pack {
+        #[arg(long, default_value = "/srv/models/radconv/occamy-1.0-FP8")]
+        checkpoint: PathBuf,
+        #[arg(long)]
+        out: PathBuf,
+        #[arg(long)]
+        dry_run: bool,
+        #[arg(long)]
+        all_layers: bool,
+    },
 
     /// FN50: add Qwen's first-party fp8 MTP experts to a Flash-Next pack as an ADDITIONAL file per
     /// rank (`rank<r>/mtp_fp8.{pack,json}`; the pack's existing files are never rewritten). No GPU.
@@ -1701,8 +1858,9 @@ enum Cmd {
         step_keyed_draws: bool,
 
         /// --engine real, FN52: PREFIX (conversation) CACHING — `on` retains a request's KV
-        /// pages + a GDN-state snapshot at its prompt's last whole block and lets a later prompt
-        /// that extends it prefill only the tail (the reference server's `--enable-prefix-caching --mamba-cache-mode
+        /// pages + a GDN-state snapshot at its cacheable whole-block boundary (a chat prompt's
+        /// conversation before its generation suffix) and lets a later prompt that extends it
+        /// prefill only the tail (the reference server's `--enable-prefix-caching --mamba-cache-mode
         /// align`). `on` is THE DEFAULT since 2026-11-11 (the user's word); `off` = the engine
         /// before = the control. It composes with `--engine-gdn-replay` (the replay law: the snapshot
         /// images the GDN base, refused fail-closed when a replay is owed).
@@ -4477,6 +4635,12 @@ fn dispatch(cmd: Cmd) -> anyhow::Result<()> {
             port,
             hip_lib,
             gdn_replay,
+            forced_chain,
+            forced_prefill,
+            forced_prefill_tokens,
+            forced_seed_width,
+            forced_schedule,
+            server_plan,
         } => {
             let args = verify_step::VerifyStepArgs {
                 pack,
@@ -4492,6 +4656,12 @@ fn dispatch(cmd: Cmd) -> anyhow::Result<()> {
                 port,
                 hip_lib: hip_lib.clone(),
                 gdn_replay,
+                forced_chain,
+                forced_prefill,
+                forced_prefill_tokens,
+                forced_seed_width,
+                forced_schedule,
+                server_plan,
             };
             // The parent at TP=2 spawns two children and touches no card itself; every other case
             // is one process with one device.
@@ -4661,6 +4831,136 @@ fn dispatch(cmd: Cmd) -> anyhow::Result<()> {
 
         Cmd::FlashnextProfile(a) => fn_profile::run(&a),
         Cmd::Fn119Oracle(a) => flashnext::dstep::oracle(&a),
+        Cmd::OccamyReference { out } => occamy::reference::run(&out),
+        Cmd::OccamyQuality {
+            checkpoint,
+            out,
+            tokens,
+            decode,
+        } => occamy::quality::run(&checkpoint, &out, &tokens, decode),
+        Cmd::OccamyProbe {
+            data,
+            prebuilt,
+            device,
+            mode,
+            iters,
+            hip_lib,
+        } => {
+            let hip = open_hip(&hip_lib)?;
+            let failed = occamy::probe::run(
+                &hip,
+                &occamy::probe::ProbeArgs {
+                    data,
+                    prebuilt,
+                    device,
+                    mode,
+                    iters,
+                },
+            );
+            drop(hip);
+            if failed? > 0 {
+                std::process::exit(1);
+            }
+            Ok(())
+        }
+        Cmd::OccamyPackProbe {
+            pack,
+            fp8_experts,
+            prebuilt,
+            device,
+            mode,
+            hip_lib,
+        } => {
+            let hip = open_hip(&hip_lib)?;
+            let failed = occamy::pack_probe::run(
+                &hip,
+                &occamy::pack_probe::PackProbeArgs {
+                    pack,
+                    fp8_experts,
+                    prebuilt,
+                    device,
+                    mode,
+                },
+            );
+            drop(hip);
+            if failed? > 0 {
+                std::process::exit(1);
+            }
+            Ok(())
+        }
+        Cmd::OccamyExec {
+            layers,
+            globals,
+            fp8_experts,
+            mtp,
+            spec_depth,
+            checkpoint,
+            prebuilt,
+            device,
+            tokens,
+            token_end,
+            decode,
+            max_ctx,
+            max_rows,
+            max_requests,
+            prefix_cache_mib,
+            host,
+            serve,
+            served_name,
+            rank,
+            peer_port,
+            trace_layers,
+            quality_reference,
+            hip_lib,
+        } => {
+            let tokens = match token_end {
+                Some(end) => (1..=end).collect(),
+                None => tokens,
+            };
+            let hip = open_hip(&hip_lib)?;
+            let result = occamy::exec::run(
+                &hip,
+                &occamy::exec::ExecArgs {
+                    layers,
+                    globals,
+                    fp8_experts,
+                    mtp,
+                    spec_depth,
+                    checkpoint,
+                    prebuilt,
+                    device,
+                    tokens,
+                    decode,
+                    max_ctx,
+                    max_rows,
+                    max_requests,
+                    prefix_cache_mib,
+                    host,
+                    serve,
+                    served_name,
+                    rank,
+                    peer_port,
+                    trace_layers,
+                    quality_reference,
+                },
+            );
+            drop(hip);
+            result?;
+            Ok(())
+        }
+        Cmd::OccamyPack {
+            checkpoint,
+            out,
+            dry_run,
+            all_layers,
+            globals,
+        } => occamy::pack::run(&checkpoint, &out, dry_run, all_layers, globals),
+        Cmd::OccamyFp8Pack {
+            checkpoint,
+            out,
+            dry_run,
+            all_layers,
+        } => occamy::fp8_pack::run(&checkpoint, &out, dry_run, all_layers),
         Cmd::FlashnextPack {
             pack,
             fp8_ckpt,

@@ -311,6 +311,10 @@ impl RequestTracker {
         self.last = Some(now);
     }
 
+    pub fn cached_tokens(&self) -> Option<u64> {
+        self.cached
+    }
+
     /// The request ended and its reply was assembled / its stream closed.
     pub fn finish(&mut self, completion_tokens: u64, reason: Option<FinishReason>, status: u16) {
         self.end = Some((completion_tokens, reason, status));

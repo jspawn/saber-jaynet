@@ -368,6 +368,30 @@ async fn reasoning_only_generation_returns_null_content() {
     assert_eq!(response["usage"]["prompt_tokens_details"], Value::Null);
 }
 
+#[tokio::test]
+async fn reasoning_effort_none_returns_plain_text_as_content() {
+    let (base, _engine) = spawn(vec![MockScript::in_steps_of(
+        bytes_of("Paris"),
+        2,
+        FinishReason::Stop,
+    )])
+    .await;
+    let response: Value = reqwest::Client::new()
+        .post(format!("{base}/v1/chat/completions"))
+        .json(&chat_body(
+            json!({"reasoning_effort": "none", "max_tokens": 32}),
+        ))
+        .send()
+        .await
+        .expect("request")
+        .json()
+        .await
+        .expect("json");
+    let message = &response["choices"][0]["message"];
+    assert_eq!(message["content"], json!("Paris"));
+    assert!(message["reasoning"].is_null());
+}
+
 /// `</think>` mid-stream splits reasoning from content, and the tag may be split
 /// across steps.
 #[tokio::test]
@@ -399,6 +423,7 @@ async fn reasoning_then_content_splits_across_a_tag_boundary() {
 }
 
 const TOOL_OUTPUT: &str = "<tool_call>\n<function=get_weather>\n<parameter=city>\nParis\n</parameter>\n<parameter=days>\n3\n</parameter>\n</function>\n</tool_call>";
+const RIPPLE_TOOL_OUTPUT: &str = "<tool_call>\n{\"name\": \"get_weather\", \"arguments\": {\"city\": \"Paris\", \"days\": 3}}\n</tool_call>";
 
 fn weather_tools() -> Value {
     json!([{
@@ -454,6 +479,133 @@ async fn tool_calls_are_parsed_and_typed_non_streaming() {
         .starts_with("chatcmpl-tool-"));
     assert_eq!(choice["message"]["content"], Value::Null);
     assert_eq!(choice["finish_reason"], json!("tool_calls"));
+}
+
+#[tokio::test]
+async fn ripple_json_tool_call_is_typed_non_streaming() {
+    let (base, _engine) = spawn(vec![MockScript::in_steps_of(
+        bytes_of(RIPPLE_TOOL_OUTPUT),
+        7,
+        FinishReason::Stop,
+    )])
+    .await;
+    let response: Value = reqwest::Client::new()
+        .post(format!("{base}/v1/chat/completions"))
+        .json(&chat_body(json!({
+            "tools": weather_tools(),
+            "tool_choice": "auto",
+            "chat_template_kwargs": {"enable_thinking": false},
+            "max_tokens": 500
+        })))
+        .send()
+        .await
+        .expect("request")
+        .json()
+        .await
+        .expect("json");
+    let choice = &response["choices"][0];
+    assert_eq!(choice["message"]["content"], Value::Null);
+    assert_eq!(choice["finish_reason"], json!("tool_calls"));
+    assert_eq!(
+        choice["message"]["tool_calls"][0]["function"],
+        json!({"name": "get_weather", "arguments": "{\"city\": \"Paris\", \"days\": 3}"})
+    );
+}
+
+#[tokio::test]
+async fn ripple_json_tool_call_streams_name_and_arguments() {
+    let (base, _engine) = spawn(vec![MockScript::in_steps_of(
+        bytes_of(RIPPLE_TOOL_OUTPUT),
+        4,
+        FinishReason::Stop,
+    )])
+    .await;
+    let body = reqwest::Client::new()
+        .post(format!("{base}/v1/chat/completions"))
+        .json(&chat_body(json!({
+            "stream": true,
+            "tools": weather_tools(),
+            "tool_choice": "auto",
+            "chat_template_kwargs": {"enable_thinking": false},
+            "max_tokens": 500
+        })))
+        .send()
+        .await
+        .expect("request")
+        .text()
+        .await
+        .expect("body");
+    let view = read_sse(&body);
+    assert_eq!(view.tool_call_names, vec!["get_weather".to_owned()]);
+    assert_eq!(
+        view.tool_call_arguments,
+        vec!["{\"city\": \"Paris\", \"days\": 3}".to_owned()]
+    );
+    assert_eq!(view.finish_reason.as_deref(), Some("tool_calls"));
+    assert!(view.content.is_empty());
+    assert!(view.saw_done);
+}
+
+#[tokio::test]
+async fn cached_tokens_reach_non_streaming_and_streaming_usage() {
+    let script = || MockScript::in_steps_of(bytes_of("OK"), 2, FinishReason::Stop);
+    let (base, engine) = spawn(vec![script(), script()]).await;
+    engine.set_cached_tokens(Some(17));
+    let client = reqwest::Client::new();
+    let response: Value = client
+        .post(format!("{base}/v1/chat/completions"))
+        .json(&chat_body(json!({"max_tokens": 2})))
+        .send()
+        .await
+        .expect("request")
+        .json()
+        .await
+        .expect("json");
+    assert_eq!(
+        response["usage"]["prompt_tokens_details"]["cached_tokens"],
+        json!(17)
+    );
+    let body = client
+        .post(format!("{base}/v1/chat/completions"))
+        .json(&chat_body(json!({
+            "stream": true,
+            "stream_options": {"include_usage": true},
+            "max_tokens": 2
+        })))
+        .send()
+        .await
+        .expect("request")
+        .text()
+        .await
+        .expect("body");
+    let view = read_sse(&body);
+    assert_eq!(
+        view.usage.expect("usage")["prompt_tokens_details"]["cached_tokens"],
+        json!(17)
+    );
+}
+
+#[tokio::test]
+async fn chat_sends_the_conversation_only_length_for_prefix_snapshots() {
+    let (base, engine) = spawn(vec![MockScript::in_steps_of(
+        bytes_of("OK"),
+        2,
+        FinishReason::Stop,
+    )])
+    .await;
+    let response = reqwest::Client::new()
+        .post(format!("{base}/v1/chat/completions"))
+        .json(&chat_body(json!({"max_tokens": 2})))
+        .send()
+        .await
+        .expect("request");
+    assert_eq!(response.status(), reqwest::StatusCode::OK);
+    let prompt_len = engine.submitted()[0].prompt_token_ids.len();
+    let generation_suffix_len = "<|im_start|>assistant\n".len();
+    assert_eq!(
+        engine.submitted_conversation_lens(),
+        vec![prompt_len - generation_suffix_len]
+    );
 }
 
 #[tokio::test]

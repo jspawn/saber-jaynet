@@ -2,8 +2,8 @@
 //
 // Written from the CR2-3a specification. One BASE state a sequence (slot sidx[n][0]) plus a stash of the
 // previous step's inputs: a launch first replays the r rows the previous step committed (k, gates, v from the
-// stash; the decode row without q), stores the base at f16 and continues from its rounded value (the law that
-// makes it byte-equal to the snapshot chain), then answers the step's own rows with no state store, stashing
+// stash; the decode row without q), rounding the carry after each row just as the single-row chain does,
+// stores the base at f16 and continues from its rounded value, then answers the step's own rows with no state store, stashing
 // their inputs for the next launch. Stash region (bytes): header {magic, tag, slot, count} | a[8] u16 @64 |
 // b[8] u16 @80 | k[8][128] bf16 @128 | v[8][128] bf16 @2176; two regions (parity) per (slot set, v head).
 // Two forms: the operands read from global per row (replay), or staged once in LDS by a prologue (replay_lds).
@@ -43,7 +43,7 @@ __device__ __forceinline__ void replay_row(float* h, const float* kk, float vval
 }
 
 // ============================================================================ global-operand form (2.10.1)
-// MODE 0 = the law (round after the replay), 1 = no rounding (the control), 2 = materialize (replay + base store,
+// MODE 0 = the law (round after every row), 1 = no rounding (the control), 2 = materialize (replay + base store,
 // then an empty header in the other region; no step rows).
 template <int VS, int MODE>
 __device__ __forceinline__ void replay_global(const ReplayArgs& a) {
@@ -92,6 +92,7 @@ __device__ __forceinline__ void replay_global(const ReplayArgs& a) {
     const float eg = E(g);
     const float bt = sigmoid_div(bf(cb));
     replay_row(h, kk, bf(cv), eg, bt);
+    if constexpr (MODE != 1) round_through_f16<kHalf>(h);
   }
   if (r > 0) {
     state_store<kStateF16, kHalf>(base, h);
@@ -127,6 +128,7 @@ __device__ __forceinline__ void replay_global(const ReplayArgs& a) {
     const float u = (bf(rv) - dot) * bt;
     const float on = update_out(h, kk, qq, u);
     if (half == 0) a.o[(tok * a.H + hv) * kDim + row] = away16(on);
+    if constexpr (MODE != 1) round_through_f16<kHalf>(h);
   }
   if (tid == 0 && z == 0) { wh[0] = kStashMagic; wh[1] = tg; wh[2] = (u32)si; wh[3] = (u32)T; }
 }
@@ -265,6 +267,7 @@ __device__ __forceinline__ void replay_lds(const ReplayArgs& a) {
       h[j + 2] = h[j + 2] + u * kv.z;
       h[j + 3] = h[j + 3] + u * kv.w;
     }
+    round_through_f16<kHalf>(h);
   }
   if (r > 0) {
     state_store<kStateF16, kHalf>(base, h);
@@ -299,6 +302,7 @@ __device__ __forceinline__ void replay_lds(const ReplayArgs& a) {
     }
     on = pair_add(on);
     if (half == 0) a.o[(tok * a.H + hv) * kDim + row] = away16(on);
+    round_through_f16<kHalf>(h);
   }
   if (tid == 0 && z == 0) {
     u32* wh = (u32*)wx;

@@ -516,6 +516,18 @@ struct RaggedTable {
     attn_combine: Vec<CombineRow>,
 }
 
+pub const OCCAMY_RULES_TEXT: &str = include_str!("../rules/occamy_gfx1201.toml");
+
+#[derive(Debug, Clone, Deserialize)]
+struct OccamyTable {
+    schema_version: u32,
+    #[allow(dead_code)]
+    name: String,
+    registry: Vec<RegistryRow>,
+    attn_prefill: Vec<PrefillRow>,
+    attn_decode: Vec<DecodeRow>,
+}
+
 /// The registry op a decode ROW BAND's attention selects (C2); a rectangle's is
 /// `attn_decode_paged`. Two names, so neither geometry can ever select the other's entry.
 pub const ATTN_DECODE_RAGGED_OP: &str = "attn_decode_paged_ragged";
@@ -528,7 +540,11 @@ pub const ATTN_DECODE_RAGGED_OP: &str = "attn_decode_paged_ragged";
 /// names the right symbol in the wrong blob and the loader reports "named symbol not found".
 /// `tests/saber_rules.rs::every_rules_symbol_lives_in_the_plugin_this_maps_it_to` is the control.
 pub fn plugin_for(symbol: &str) -> Result<&'static str> {
-    if symbol.starts_with("saber_attn_decode_ragged_")
+    if symbol.starts_with("occamy_attn_") {
+        Ok("occamy_attn")
+    } else if symbol.starts_with("occamy_moe_") {
+        Ok("occamy_moe")
+    } else if symbol.starts_with("saber_attn_decode_ragged_")
         || symbol.starts_with("saber_attn_splitkv_combine_ragged_")
     {
         // The ragged pair (C2) BEFORE the uniform attention, whose prefix it shares.
@@ -585,6 +601,48 @@ impl SaberRules {
     /// RAGGED decode attention's own table (C2, [`RAGGED_RULES_TEXT`]).
     pub fn prod_saber() -> Result<Self> {
         Self::from_toml(PROD_RULES)?.with_ragged_toml(RAGGED_RULES_TEXT)
+    }
+
+    pub fn occamy() -> Result<Self> {
+        Self::prod_saber()?.with_occamy_toml(OCCAMY_RULES_TEXT)
+    }
+
+    pub fn with_occamy_toml(mut self, text: &str) -> Result<Self> {
+        let t: OccamyTable = toml::from_str(text).map_err(|e| Error::Parse(e.to_string()))?;
+        if t.schema_version != self.schema_version {
+            return Err(Error::Rule(format!(
+                "Occamy rules schema {} beside saber schema {}",
+                t.schema_version, self.schema_version
+            )));
+        }
+        if let Some(row) = t
+            .registry
+            .iter()
+            .find(|row| !matches!(row.op.as_str(), "attn_prefill_paged" | "attn_decode_paged"))
+        {
+            return Err(Error::Rule(format!(
+                "the Occamy table may not add registry op `{}`",
+                row.op
+            )));
+        }
+        if let Some(row) = t
+            .attn_prefill
+            .iter()
+            .map(|row| &row.entry)
+            .chain(t.attn_decode.iter().map(|row| &row.entry))
+            .find(|entry| !entry.ends_with("gqa8_bf16kv"))
+        {
+            return Err(Error::Rule(format!(
+                "the Occamy table may not instantiate `{row}`"
+            )));
+        }
+        self.knobs.attn_gqa = 8;
+        self.knobs.prefill_bq = 48;
+        self.registry.extend(t.registry);
+        self.attn_prefill.extend(t.attn_prefill);
+        self.attn_decode.extend(t.attn_decode);
+        self.check()?;
+        Ok(self)
     }
 
     /// Merge a ragged-attention table (C2) into these rules: its registry rows (op

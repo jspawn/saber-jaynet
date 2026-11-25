@@ -8,8 +8,8 @@
 //!
 //! Two details that look like mistakes and are not:
 //!
-//! * the non-streaming `usage` carries `prompt_tokens_details: null`, while the
-//!   streaming usage chunk omits the key entirely — prod does exactly that;
+//! * without a cache report, non-streaming `usage` carries `prompt_tokens_details: null`
+//!   and streaming omits the key; a cached-prefix count adds the standard details object;
 //! * the response field is **`reasoning`**, not `reasoning_content` (the reference 0.26+).
 
 use serde::{Deserialize, Serialize};
@@ -308,14 +308,22 @@ impl Usage {
             prompt_tokens_details: None,
         }
     }
+
+    pub fn with_cached_tokens(mut self, cached_tokens: Option<u64>) -> Self {
+        self.prompt_tokens_details = cached_tokens
+            .map(|cached_tokens| serde_json::json!({ "cached_tokens": cached_tokens }));
+        self
+    }
 }
 
-/// Streaming `usage`: prod omits `prompt_tokens_details` on this one.
+/// Streaming usage omits prompt details until the engine reports a cached prefix.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct StreamUsage {
     pub prompt_tokens: u64,
     pub total_tokens: u64,
     pub completion_tokens: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prompt_tokens_details: Option<Value>,
 }
 
 impl From<Usage> for StreamUsage {
@@ -324,6 +332,7 @@ impl From<Usage> for StreamUsage {
             prompt_tokens: u.prompt_tokens,
             total_tokens: u.total_tokens,
             completion_tokens: u.completion_tokens,
+            prompt_tokens_details: u.prompt_tokens_details,
         }
     }
 }

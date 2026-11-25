@@ -4,9 +4,9 @@ arch = "gfx1201"
 source = "crates/saber-kernels/hip/saber_gdn_fused_update_f16s.hip"
 source_sha256 = "4a3a5794f8bf64b0d27e8903ffe78e56f3e9e616e4627c4bf0eb2082ede9a297"
 flags = "--genco --offload-arch=gfx1201 -O3 -ffp-contract=off"
-build_hash = "2dec428ff9c90dd7b9abba192dfdbbc28e475a9855f34914c78236c52cac0f43"
+build_hash = "52acaaea084fd2cad6bf4ce248a1a1bc47b6026bdc19ffb47702ee88b05635f8"
 hsaco = "saber_gdn_fused_update_f16s.hsaco"
-hsaco_sha256 = "e91b4bce9937e570c3eb3efd15f61465ba61ec2df1484a05741d4f43a2187e26"
+hsaco_sha256 = "f17ec18a66f4ec9db71b3d6f8468db597a22fc28277241f17f622edf7fc939ae"
 
 [[kernel]]
 name = "saber_gdn_fused_update_f16s_w4k128v128_ab0"

@@ -1095,6 +1095,16 @@ impl HipThread {
         })
     }
 
+    /// The same device-visible address with its non-owning address type.
+    pub fn host_device_address(&self, buf: &PinnedBuf) -> Result<DeviceAddr> {
+        let p = buf.as_usize();
+        self.run(move |lib, ctx| {
+            // SAFETY: `buf` is a live `hipHostMalloc` allocation borrowed by the caller's frame for
+            // the duration of this blocking call.
+            unsafe { lib.host_get_device_pointer(ctx, p as *mut c_void) }.map(DeviceAddr::from_raw)
+        })
+    }
+
     /// Asynchronous host-to-device copy from pinned staging. Both buffers are owned handles, so
     /// both outlive the call; ordering against the copy is the caller's, via `stream`.
     pub fn memcpy_h2d(&self, dst: &DevicePtr, src: &PinnedBuf, stream: &Stream) -> Result<()> {

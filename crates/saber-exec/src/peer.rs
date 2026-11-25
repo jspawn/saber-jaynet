@@ -373,7 +373,7 @@ impl TcpExchange {
                 Err(e) if std::time::Instant::now() >= deadline => {
                     return Err(Error::Refused(format!(
                         "rank 1: could not reach rank 0 on port {port} within {timeout:?}: {e}"
-                    )))
+                    )));
                 }
                 Err(_) => std::thread::sleep(Duration::from_millis(20)),
             }
@@ -391,6 +391,17 @@ impl TcpExchange {
             rank,
             stream: Mutex::new(stream),
         })
+    }
+
+    /// Change the read deadline after startup. Long-lived servers disable it so an idle follower
+    /// does not exit merely because no request arrived; a closed peer socket still returns an error.
+    pub fn set_read_timeout(&self, timeout: Option<Duration>) -> Result<()> {
+        let stream = self.stream.lock().map_err(|_| {
+            Error::Refused("the peer socket was poisoned by a panicking rank".to_owned())
+        })?;
+        stream
+            .set_read_timeout(timeout)
+            .map_err(|e| Error::Refused(format!("rank {}: setting read timeout: {e}", self.rank)))
     }
 
     /// One frame: a kind byte, a length-prefixed name, then the payload.

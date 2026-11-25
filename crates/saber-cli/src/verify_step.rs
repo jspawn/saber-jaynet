@@ -121,9 +121,34 @@ pub struct VerifyStepArgs {
     /// SNAPSHOT law on the same steps (arm B: the shipped verify step twice, then one shipped
     /// single-row step), both on the f16 stored state. Each arm gains a third step (one row over
     /// a fixed token `z`, which in arm A replays the bonus row) so arm A's base is the state after
-    /// `y0` -- arm B's slot 1 after its second step. (The single-row CHAIN is not the reference on
-    /// the f16 state: it rounds to f16 after every row, a verify step after its last.)
+    /// `y0` -- arm B's slot 1 after its second step. Both recurrent forms round the carry to f16
+    /// after every row, so the multi-row and single-row histories are equivalent.
     pub gdn_replay: bool,
+    /// Seed the whole prompt through single-row steps, then compare the last `--spec` inputs as one
+    /// multi-row step against the same inputs single-row. The prompt file carries the complete
+    /// forced history; argmax does not choose which history is fed.
+    pub forced_chain: bool,
+    /// With `--forced-chain`: seed the prefix through this padded prefill bucket instead of
+    /// single-row decode steps. Zero selects the decode-seeded arm.
+    pub forced_prefill: u32,
+    /// Tokens to feed through that prefill. Zero uses the whole seed; any remaining seed tokens are
+    /// decoded after it.
+    pub forced_prefill_tokens: u32,
+    /// Width of full seed blocks after the prefill. One is the target-only history; `--spec`
+    /// reproduces a fully accepted speculative history.
+    pub forced_seed_width: u32,
+    /// A recorded speculative seed: `token_ids` and one acceptance count per width-`--spec` step.
+    /// The final comparison still uses `--prompt-ids`.
+    pub forced_schedule: Option<PathBuf>,
+    /// Use the server's layer-slot reuse and batch-invariant attention plan options.
+    pub server_plan: bool,
+}
+
+#[derive(serde::Deserialize)]
+struct ForcedSchedule {
+    token_ids: Option<Vec<i32>>,
+    blocks: Option<Vec<Vec<i32>>>,
+    accepted: Vec<u32>,
 }
 
 /// P27-W2-5: the fixed token of arm A's third step / arm B's last (replay mode only).
@@ -237,6 +262,27 @@ fn spawn_ranks(args: &VerifyStepArgs) -> anyhow::Result<usize> {
         if args.gdn_replay {
             cmd.arg("--gdn-replay");
         }
+        if args.forced_chain {
+            cmd.arg("--forced-chain");
+        }
+        if args.forced_prefill > 0 {
+            cmd.arg("--forced-prefill")
+                .arg(args.forced_prefill.to_string());
+        }
+        if args.forced_prefill_tokens > 0 {
+            cmd.arg("--forced-prefill-tokens")
+                .arg(args.forced_prefill_tokens.to_string());
+        }
+        if args.forced_seed_width > 0 {
+            cmd.arg("--forced-seed-width")
+                .arg(args.forced_seed_width.to_string());
+        }
+        if let Some(path) = &args.forced_schedule {
+            cmd.arg("--forced-schedule").arg(path);
+        }
+        if args.server_plan {
+            cmd.arg("--server-plan");
+        }
         children.push((rank, cmd.spawn()?));
     }
     let deadline = Instant::now() + RANK_DEADLINE;
@@ -305,6 +351,46 @@ fn tables(
     Ok(out)
 }
 
+fn prefill_tables(
+    plan: &BlockPlan<'_>,
+    ids: &[i32],
+    rows: u32,
+    pages: &[u32],
+    max_blocks: u32,
+) -> anyhow::Result<BTreeMap<String, Vec<u8>>> {
+    let mut padded = vec![0i32; rows as usize];
+    anyhow::ensure!(
+        ids.len() <= padded.len(),
+        "prefill ids exceed the planned bucket"
+    );
+    padded[..ids.len()].copy_from_slice(ids);
+    let seqs = [SeqFacts {
+        state_slot: FIRST_STATE_SLOT,
+        done_before: 0,
+        kv_blocks: pages,
+        live_rows: ids.len() as u32,
+        rope: None,
+    }];
+    let step = StepIndex {
+        phase: Phase::Prefill,
+        rows,
+        max_blocks,
+        seqs: &seqs,
+        ids: &padded,
+        band_width: None,
+    };
+    let acc = [1];
+    step.check_with(Accepted::PerSeq(&acc))
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+    let mut out = BTreeMap::new();
+    for key in plan.index_keys() {
+        let bytes = saber_exec::forward::index_table_with(&key, &step, Accepted::PerSeq(&acc))
+            .map_err(|e| anyhow::anyhow!("{e}"))?;
+        out.insert(key, bytes);
+    }
+    Ok(out)
+}
+
 /// What one arm leaves behind, per GDN layer: the snapshot the next step resumes from, the three
 /// conv entries it reads, and the logits row for the last token.
 struct Left {
@@ -347,7 +433,24 @@ fn rank_main(
     };
     hip.set_device(device)?;
     crate::gpu_idle::require_default(hip, device, 0)?;
-    let graph = Graph::qwen38_27b_at_width(ModelConfig::qwen38_27b(), args.tp, args.spec)?;
+    let head = {
+        let reader = PackReader::open(&pack_file(&args.pack, rank))?;
+        saber_engine::head_share::pack_head_kind(
+            saber_engine::head_share::HeadRecord::of(
+                &reader,
+                saber_engine::head_share::TARGET_HEAD,
+            )
+            .as_ref(),
+            saber_engine::head_share::HeadRecord::of(
+                &reader,
+                saber_engine::head_share::TARGET_FP8_HEAD,
+            )
+            .as_ref(),
+            &args.pack.display().to_string(),
+        )
+        .map_err(anyhow::Error::msg)?
+    };
+    let graph = saber_engine::head_share::target_graph(head, args.tp, args.spec)?;
     // P27-W2-5: the replay form is built for the f16 stored state, so BOTH arms run on it under
     // `--gdn-replay` (the chain arm B on the shipped snapshot kernels); the replay arm's graph runs
     // every bucket on the pair, as the engine's does.
@@ -358,7 +461,7 @@ fn rank_main(
     };
     let graph_r = if args.gdn_replay {
         Some(
-            Graph::qwen38_27b_at_width(ModelConfig::qwen38_27b(), args.tp, args.spec)?
+            saber_engine::head_share::target_graph(head, args.tp, args.spec)?
                 .with_gdn_state_f16()?
                 .with_gdn_pair_always(),
         )
@@ -377,15 +480,19 @@ fn rank_main(
     } else {
         Collectives::Real
     };
-    // Every layer-local edge gets its OWN buffer and the arena is zeroed before every step, so an
-    // op with no code object contributes a deterministic zero to both arms instead of whatever the
-    // slot last held. That is what makes a byte comparison across two different row counts mean
-    // something while the attention glue is still P's.
+    // The standard gate gives every layer-local edge its OWN buffer so it can inspect each
+    // attention layer after the step. The server-plan arm reproduces production slot reuse and
+    // attention partitioning instead.
     let opts = {
         let mut o = PlanOptions::FORWARD
             .rank(rank)
             .with_collectives(collectives);
-        o.reuse_layer_slots = false;
+        o.reuse_layer_slots = args.server_plan;
+        if args.server_plan {
+            o = o
+                .with_batch_invariant_attn()
+                .with_table_blocks((args.ctx + spec + 1).div_ceil(16));
+        }
         o
     };
     let params = RuntimeParams {
@@ -405,6 +512,38 @@ fn rank_main(
     };
     let verify = plan_of(spec)?;
     let single = plan_of(1)?;
+    let prefill = if args.forced_prefill > 0 {
+        anyhow::ensure!(args.forced_chain, "--forced-prefill needs --forced-chain");
+        let seed_len = ids.len().checked_sub(spec as usize).ok_or_else(|| {
+            anyhow::anyhow!("--forced-chain needs a seed plus one --spec verify block")
+        })?;
+        let prefill_tokens = if args.forced_prefill_tokens == 0 {
+            seed_len
+        } else {
+            args.forced_prefill_tokens as usize
+        };
+        anyhow::ensure!(prefill_tokens > 0 && prefill_tokens <= seed_len);
+        anyhow::ensure!(prefill_tokens <= args.forced_prefill as usize);
+        let prefill_opts = {
+            let mut o = PlanOptions::BODY.rank(rank).with_collectives(collectives);
+            o.reuse_layer_slots = false;
+            o
+        };
+        let mut p = BlockPlan::with_options(
+            &graph,
+            graph.bucket_for(args.forced_prefill, Phase::Prefill),
+            &layers,
+            params,
+            &mxfp4,
+            &saber,
+            prefill_opts,
+        )?;
+        p.retarget_prefill_rows(prefill_tokens as u32, &saber)?;
+        p.retarget_prefill_state(FIRST_STATE_SLOT)?;
+        Some(p)
+    } else {
+        None
+    };
     // P27-W2-5: the replay arm's two plans, rewritten by the engine's own law.
     let replay_plans: Option<(BlockPlan<'_>, BlockPlan<'_>)> = match &graph_r {
         Some(gr) => {
@@ -439,14 +578,23 @@ fn rank_main(
 
     // ---- this rank's weights -------------------------------------------------------------------
     let mut want = verify.weight_keys();
+    if let Some(p) = &prefill {
+        want.extend(p.weight_keys());
+    }
     if let Some((vr, sr)) = &replay_plans {
         want.extend(vr.weight_keys());
         want.extend(sr.weight_keys());
     }
     want.insert("model.language_model.embed_tokens.weight".to_string());
     want.insert("model.language_model.norm.weight".to_string());
-    for k in ["lm_head.w", "lm_head.ws", "lm_head.wref"] {
-        want.insert(k.to_string());
+    if head == saber_engine::head_share::TargetHead::Mxfp4 {
+        for k in ["lm_head.w", "lm_head.ws", "lm_head.wref"] {
+            want.insert(k.to_string());
+        }
+    } else {
+        for k in head.target_records() {
+            want.insert((*k).to_string());
+        }
     }
     let reader = PackReader::open(&pack_file(&args.pack, rank))?;
     let mut layout_of: BTreeMap<String, u32> = BTreeMap::new();
@@ -694,13 +842,42 @@ fn rank_main(
         // furthest position this step addresses", and a shorter one is a bit-identical PREFIX of a
         // longer one. The steps below run at `done_before` up to `spec` (the second verify step
         // after `spec` committed rows), so a build at `2 * spec` covers every one of them and the
-        // uploads that follow are shorter writes into a buffer that is already long enough.
-        let t = tables(plan, &seed, 2 * spec, &pages, kv_blocks_per_seq, 1)?;
+        // uploads that follow are shorter writes into a buffer that is already long enough. A
+        // forced chain addresses the whole supplied history, not only the two standard steps.
+        let furthest = if args.forced_chain {
+            (ids.len() as u32 + spec).max(2 * spec)
+        } else {
+            2 * spec
+        };
+        let t = tables(plan, &seed, furthest, &pages, kv_blocks_per_seq, 1)?;
         let mut map = BTreeMap::new();
         for (key, bytes) in &t {
             let p = to_device(hip, &stream, bytes, &mut budget)?;
             map.insert(key.clone(), owned.len());
             owned.push(p);
+        }
+        index_ptrs.push(map);
+    }
+    let prefill_index = index_ptrs.len();
+    if let Some(p) = &prefill {
+        let seed_len = ids.len() - spec as usize;
+        let prefill_tokens = if args.forced_prefill_tokens == 0 {
+            seed_len
+        } else {
+            args.forced_prefill_tokens as usize
+        };
+        let t = prefill_tables(
+            p,
+            &ids[..prefill_tokens],
+            args.forced_prefill,
+            &pages,
+            kv_blocks_per_seq,
+        )?;
+        let mut map = BTreeMap::new();
+        for (key, bytes) in &t {
+            let ptr = to_device(hip, &stream, bytes, &mut budget)?;
+            map.insert(key.clone(), owned.len());
+            owned.push(ptr);
         }
         index_ptrs.push(map);
     }
@@ -714,15 +891,21 @@ fn rank_main(
             }
         };
     }
-    if verify.arena_bytes + single.arena_bytes > budget {
+    let arena_bytes =
+        verify.arena_bytes + single.arena_bytes + prefill.as_ref().map_or(0, |p| p.arena_bytes);
+    if arena_bytes > budget {
         anyhow::bail!(
-            "the two arenas are {} MiB and {} MiB is left",
-            (verify.arena_bytes + single.arena_bytes) >> 20,
+            "the planned arenas are {} MiB and {} MiB is left",
+            arena_bytes >> 20,
             budget >> 20
         );
     }
     let mut exec_v = BlockExecutor::new(hip, &verify, 8usize << 20)?;
     let mut exec_s = BlockExecutor::new(hip, &single, 8usize << 20)?;
+    let mut exec_p = match &prefill {
+        Some(p) => Some(BlockExecutor::new(hip, p, 8usize << 20)?),
+        None => None,
+    };
     let mut exec_r: Option<(BlockExecutor, BlockExecutor)> = match &replay_plans {
         Some((vr, sr)) => Some((
             BlockExecutor::new(hip, vr, 8usize << 20)?,
@@ -743,6 +926,9 @@ fn rank_main(
         if let (Some((vr, sr)), Some((ev, es))) = (&replay_plans, &exec_r) {
             all.push((2, vr, ev));
             all.push((3, sr, es));
+        }
+        if let (Some(plan), Some(exec)) = (&prefill, &exec_p) {
+            all.push((prefill_index, plan, exec));
         }
         for &(which, plan, exec) in &all {
             point_at!(index_ptrs[which]);
@@ -883,6 +1069,196 @@ fn rank_main(
         hip.sync_stream(&stream)?;
         Ok(())
     };
+    if args.forced_chain {
+        anyhow::ensure!(
+            !args.gdn_replay,
+            "--forced-chain currently compares the snapshot-law arms; run it without --gdn-replay"
+        );
+        let seed_len = ids
+            .len()
+            .checked_sub(spec as usize)
+            .filter(|n| *n > 0)
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "--forced-chain needs more than --spec ({spec}) ids: a seed plus one verify block"
+                )
+            })?;
+        let block = &ids[seed_len..];
+        let seed_width = if args.forced_seed_width == 0 {
+            1
+        } else {
+            args.forced_seed_width
+        };
+        anyhow::ensure!(
+            seed_width == 1 || seed_width == spec,
+            "--forced-seed-width must be 1 or --spec ({spec})"
+        );
+        let prefill_tokens = if prefill.is_some() {
+            if args.forced_prefill_tokens == 0 {
+                seed_len
+            } else {
+                args.forced_prefill_tokens as usize
+            }
+        } else {
+            0
+        };
+        let schedule = match &args.forced_schedule {
+            Some(path) => {
+                let bytes = std::fs::read(path)?;
+                let schedule: ForcedSchedule = serde_json::from_slice(&bytes)?;
+                anyhow::ensure!(
+                    schedule.accepted.iter().all(|a| (1..=spec).contains(a)),
+                    "every scheduled acceptance must be in 1..={spec}"
+                );
+                anyhow::ensure!(
+                    schedule.accepted.iter().map(|a| *a as usize).sum::<usize>()
+                        == seed_len - prefill_tokens,
+                    "the scheduled acceptance counts must cover the decode seed"
+                );
+                Some(schedule)
+            }
+            None => None,
+        };
+        let mut wide_rows = Vec::with_capacity(spec as usize);
+        let mut chain_rows = Vec::with_capacity(spec as usize);
+        for arm in 0..2 {
+            zero_state(hip)?;
+            if let (Some(plan), Some(exec)) = (&prefill, &mut exec_p) {
+                let t = prefill_tables(
+                    plan,
+                    &ids[..prefill_tokens],
+                    args.forced_prefill,
+                    &pages,
+                    kv_blocks_per_seq,
+                )?;
+                for (key, bytes) in &t {
+                    let i = *index_ptrs[prefill_index]
+                        .get(key)
+                        .ok_or_else(|| anyhow::anyhow!("no prefill buffer for index `{key}`"))?;
+                    hip.memcpy_h2d_blocking(&owned[i], bytes, &stream)?;
+                    inputs.indices.insert(key.clone(), owned[i].addr());
+                }
+                exec.zero(hip, &stream)?;
+                hip.sync_stream(&stream)?;
+                if let Some(p) = &peer {
+                    p.rendezvous(&format!("forced-prefill-{arm}"))?;
+                }
+                let n = exec
+                    .run_steps(&ctx, &mut launcher, &stream, &plan.steps, &inputs, false)?
+                    .launches;
+                tp2::wait_bounded(&ctx, &stream, "the forced prefill")?;
+                if n != plan.expected_launches() {
+                    launched_wrong += 1;
+                }
+            }
+            let mut previous_accepted = 1u32;
+            let mut at = prefill_tokens;
+            if let (0, Some(schedule)) = (arm, &schedule) {
+                for (step, &accepted) in schedule.accepted.iter().enumerate() {
+                    let input: &[i32] = if let Some(blocks) = &schedule.blocks {
+                        anyhow::ensure!(step < blocks.len() && blocks[step].len() == spec as usize);
+                        &blocks[step]
+                    } else {
+                        let stream = schedule.token_ids.as_ref().ok_or_else(|| {
+                            anyhow::anyhow!("the schedule needs token_ids or literal blocks")
+                        })?;
+                        anyhow::ensure!(at + spec as usize <= stream.len());
+                        &stream[at..at + spec as usize]
+                    };
+                    one_step!(
+                        &verify,
+                        exec_v,
+                        index_ptrs[0],
+                        input,
+                        at as u32,
+                        previous_accepted,
+                        "the recorded speculative seed"
+                    );
+                    previous_accepted = accepted;
+                    at += accepted as usize;
+                }
+            } else {
+                let run_seed_width = if arm == 0 { seed_width } else { 1 };
+                while at < seed_len {
+                    if run_seed_width == spec && seed_len - at >= spec as usize {
+                        one_step!(
+                            &verify,
+                            exec_v,
+                            index_ptrs[0],
+                            &ids[at..at + spec as usize],
+                            at as u32,
+                            previous_accepted,
+                            "the forced wide seed"
+                        );
+                        previous_accepted = spec;
+                        at += spec as usize;
+                    } else {
+                        one_step!(
+                            &single,
+                            exec_s,
+                            index_ptrs[1],
+                            std::slice::from_ref(&ids[at]),
+                            at as u32,
+                            previous_accepted,
+                            "the forced-chain seed"
+                        );
+                        previous_accepted = 1;
+                        at += 1;
+                    }
+                }
+            }
+            if arm == 0 {
+                one_step!(
+                    &verify,
+                    exec_v,
+                    index_ptrs[0],
+                    block,
+                    seed_len as u32,
+                    previous_accepted,
+                    "the forced multi-row step"
+                );
+                for row in 0..spec as usize {
+                    let mut buf = vec![0u8; row_bytes];
+                    exec_v.download(hip, logits_v + (row * row_bytes) as u64, &mut buf, &stream)?;
+                    wide_rows.push(buf);
+                }
+            } else {
+                for (row, id) in block.iter().enumerate() {
+                    one_step!(
+                        &single,
+                        exec_s,
+                        index_ptrs[1],
+                        std::slice::from_ref(id),
+                        (seed_len + row) as u32,
+                        if row == 0 { previous_accepted } else { 1 },
+                        "the forced single-row step"
+                    );
+                    let mut buf = vec![0u8; row_bytes];
+                    exec_s.download(hip, logits_s, &mut buf, &stream)?;
+                    chain_rows.push(buf);
+                }
+            }
+        }
+        let wide_ids = host_argmax(&wide_rows, &peer, rank, "forced-wide")?;
+        let chain_ids = host_argmax(&chain_rows, &peer, rank, "forced-chain")?;
+        for row in 0..spec as usize {
+            let different = differ(&wide_rows[row], &chain_rows[row]);
+            if different != 0 {
+                failures += 1;
+            }
+            if rank == 0 {
+                println!(
+                    "forced row {row}: input {}, wide token {}, chain token {}, logits bytes differ \
+                     {different}/{row_bytes}{}",
+                    block[row],
+                    wide_ids[row],
+                    chain_ids[row],
+                    if different == 0 { " — BIT-EXACT" } else { "" }
+                );
+            }
+        }
+        return Ok(failures + usize::from(launched_wrong > 0));
+    }
     // Slot 1 of a state buffer, read as the first two slots because a D2H copy starts at 0.
     let slot_of = |hip: &HipThread, name: &str, per_slot: u64| -> anyhow::Result<Vec<u8>> {
         let (i, _, _) = states[name];

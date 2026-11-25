@@ -952,6 +952,8 @@ struct Waiting {
     params: SamplingParams,
     prompt: Vec<TokenId>,
     prompt_len: usize,
+    /// Chat conversation tokens before the generation suffix; the prefix snapshot's boundary.
+    conversation_len: Option<usize>,
     max_tokens: usize,
     /// Branches this request wants: `params.n`. Admission is all-or-nothing over them.
     n: u32,
@@ -1903,6 +1905,7 @@ impl Core {
             params: seq.params.clone(),
             prompt: seq.tokens.clone(),
             prompt_len: seq.tokens.len(),
+            conversation_len: None,
             max_tokens: seq.max_tokens - seq.generated.min(seq.max_tokens),
             n: 1,
             events: seq.events.clone(),
@@ -2227,9 +2230,11 @@ impl Core {
         let prompt = head.prompt.clone();
         let prompt_len = head.prompt_len;
         let hit = self.prefix.lookup(&prompt);
-        let snap_at = self
-            .prefix
-            .snapshot_point(prompt_len)
+        let snap_at = head.conversation_len.map_or_else(
+            || self.prefix.snapshot_point(prompt_len),
+            |len| self.prefix.conversation_snapshot_point(prompt_len, len),
+        );
+        let snap_at = snap_at
             .filter(|a| !self.prefix.holds(&prompt, *a))
             .filter(|a| hit.as_ref().is_none_or(|h| *a > h.tokens));
         let lineage = hit.as_ref().map(|h| h.lineage()).unwrap_or_default();
@@ -2737,6 +2742,7 @@ impl Core {
                             params: parked.params.clone(),
                             prompt,
                             prompt_len: parked.prompt_len,
+                            conversation_len: None,
                             max_tokens: parked.max_tokens,
                             n,
                             events: parked.events.clone(),
@@ -3600,6 +3606,7 @@ impl Core {
             params: parked.params.clone(),
             prompt,
             prompt_len: parked.prompt_len,
+            conversation_len: None,
             max_tokens: parked.max_tokens,
             n,
             events: parked.events.clone(),
@@ -4909,7 +4916,15 @@ fn emit_owned(
 
 impl<E: StepExecutor> Engine for Scheduler<E> {
     fn submit(&self, request: EngineRequest) -> Result<Submission, EngineError> {
-        self.submit_inner(request, None)
+        self.submit_inner(request, None, None)
+    }
+
+    fn submit_with_conversation_len(
+        &self,
+        request: EngineRequest,
+        conversation_len: usize,
+    ) -> Result<Submission, EngineError> {
+        self.submit_inner(request, None, Some(conversation_len))
     }
 
     /// D3: an image request is queued like a text one, carrying its processed images; the tower
@@ -4931,7 +4946,7 @@ impl<E: StepExecutor> Engine for Scheduler<E> {
                 message: saber_serve::engine::TEXT_ONLY_REFUSAL.to_owned(),
             });
         }
-        self.submit_inner(request, Some(images))
+        self.submit_inner(request, Some(images), None)
     }
 
     fn abort(&self, id: RequestId) {
@@ -4952,6 +4967,7 @@ impl<E: StepExecutor> Scheduler<E> {
         &self,
         request: EngineRequest,
         images: Option<saber_serve::engine::ImageBatch>,
+        conversation_len: Option<usize>,
     ) -> Result<Submission, EngineError> {
         let prompt_len = request.prompt_token_ids.len();
         if prompt_len > self.model.max_model_len {
@@ -5080,6 +5096,7 @@ impl<E: StepExecutor> Scheduler<E> {
             params,
             prompt: request.prompt_token_ids,
             prompt_len,
+            conversation_len,
             max_tokens,
             n,
             events: tx,

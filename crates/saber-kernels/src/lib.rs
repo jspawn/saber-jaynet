@@ -37,6 +37,7 @@ pub mod manifest;
 pub mod moe;
 pub mod msgpack;
 pub mod noop;
+pub mod occamy;
 pub mod p27d;
 pub mod paro;
 pub mod producer;
@@ -83,10 +84,11 @@ pub type Result<T> = std::result::Result<T, Error>;
 /// to the plan input hash, and every record went on binding the variant the old policy chose. The
 /// list is now derived from the directory by a test rather than by memory (docs/LEDGER.md, I17).
 #[must_use]
-pub fn committed_rule_tables() -> [(&'static str, &'static str); 11] {
+pub fn committed_rule_tables() -> [(&'static str, &'static str); 12] {
     [
         ("mxfp4_gfx1201.toml", rules::PROD_RULES_TEXT),
         ("saber_gfx1201.toml", saber::PROD_RULES_TEXT),
+        ("occamy_gfx1201.toml", saber::OCCAMY_RULES_TEXT),
         // C2's ragged decode attention, its own table so its edits re-key only its own route.
         ("saber_ragged_gfx1201.toml", saber::RAGGED_RULES_TEXT),
         ("paro_gfx1201.toml", paro::PROD_RULES_TEXT),
@@ -335,6 +337,7 @@ pub fn rule_table_for_plugin(plugin: &str) -> Option<&'static str> {
         // CMP27AJ: the seam row's staged-term form (`--engine-step-arms rowstage`).
         "saber_device_row_stage" => "noop_gfx1201.toml",
         p if p.starts_with("mxfp4_") => "mxfp4_gfx1201.toml",
+        "occamy_attn" | "occamy_moe" => "occamy_gfx1201.toml",
         "saber_attn_ragged" => "saber_ragged_gfx1201.toml",
         p if p.starts_with("saber_") => "saber_gfx1201.toml",
         p if p.starts_with("dflash_") => "dflash_gfx1201.toml",
@@ -371,6 +374,8 @@ pub mod prebuilt {
             "saber_attn.hsaco",
             "saber_attn_prefill_h256_gqa6_fp8kv_qk8pv8",
         ),
+        ("occamy_attn.hsaco", "occamy_attn_prefill_h256_gqa8_bf16kv"),
+        ("occamy_moe.hsaco", "occamy_moe_route_topk8_sort_e256"),
         // The RAGGED decode attention (workstream C2): rx6's decode kernel and combine with each
         // sequence's query length read from `cu_q` (the retired source generator RAGGED_SUBS). Its
         // own code object, so `saber_attn` keeps rx6's bytes.

@@ -1,0 +1,52 @@
+schema_version = 1
+name = "occamy-qwen35-moe-gfx1201"
+
+[[registry]]
+op = "attn_prefill_paged"
+entry = "attn_prefill_h256_gqa8_bf16kv"
+constraints = [
+  { key = "head_dim", op = "eq", ival = 256 },
+  { key = "gqa", op = "eq", ival = 8 },
+  { key = "block_size", op = "eq", ival = 16 },
+  { key = "causal", op = "eq", ival = 1 },
+  { key = "q_dtype", op = "in", sval = "bf16" },
+  { key = "kv_dtype", op = "in", sval = "bf16" },
+]
+
+[[registry]]
+op = "attn_decode_paged"
+entry = "attn_decode_h256_gqa8_bf16kv"
+constraints = [
+  { key = "head_dim", op = "eq", ival = 256 },
+  { key = "gqa", op = "eq", ival = 8 },
+  { key = "block_size", op = "eq", ival = 16 },
+  { key = "causal", op = "eq", ival = 1 },
+  { key = "q_len", op = "le", ival = 8 },
+  { key = "q_dtype", op = "in", sval = "bf16" },
+  { key = "kv_dtype", op = "in", sval = "bf16" },
+]
+
+[[attn_prefill]]
+entry = "attn_prefill_h256_gqa8_bf16kv"
+fp8_mode = 0
+symbol = "occamy_attn_prefill_h256_gqa8_bf16kv"
+
+[[attn_decode]]
+entry = "attn_decode_h256_gqa8_bf16kv"
+nw = 1
+symbol = "occamy_attn_decode_h256_gqa8_bf16kv_nw1"
+
+[[attn_decode]]
+entry = "attn_decode_h256_gqa8_bf16kv"
+nw = 2
+symbol = "occamy_attn_decode_h256_gqa8_bf16kv_nw2"
+
+[[attn_decode]]
+entry = "attn_decode_h256_gqa8_bf16kv"
+nw = 3
+symbol = "occamy_attn_decode_h256_gqa8_bf16kv_nw3"
+
+[[attn_decode]]
+entry = "attn_decode_h256_gqa8_bf16kv"
+nw = 4
+symbol = "occamy_attn_decode_h256_gqa8_bf16kv_nw4"

@@ -229,6 +229,70 @@ async fn turn(s: &Arc<Scheduler<Toy>>, prompt: &[TokenId], max_tokens: usize) ->
     events.iter().flat_map(|e| e.new_tokens.clone()).collect()
 }
 
+async fn chat_turn(
+    s: &Arc<Scheduler<Toy>>,
+    prompt: &[TokenId],
+    conversation_len: usize,
+    max_tokens: usize,
+) -> Vec<TokenId> {
+    use futures_util::StreamExt;
+    let sub = s
+        .submit_with_conversation_len(
+            EngineRequest {
+                prompt_token_ids: prompt.to_vec(),
+                params: SamplingParams {
+                    max_tokens: Some(max_tokens),
+                    ..SamplingParams::default()
+                },
+            },
+            conversation_len,
+        )
+        .expect("submit");
+    s.run_steps(4000);
+    let events: Vec<StepEvent> = sub.events.collect().await;
+    events.iter().flat_map(|e| e.new_tokens.clone()).collect()
+}
+
+#[tokio::test]
+async fn a_generation_suffix_never_enters_the_next_turns_cached_prefix() {
+    for alignment in 0..BT {
+        let conversation = ids(7, 700 + alignment);
+        let suffix = ids(99, 13);
+        let mut full = conversation.clone();
+        full.extend(&suffix);
+
+        let control = sched(on(), 8 * GIB);
+        let answer = turn(&control, &full, 8).await;
+        let mut next = conversation.clone();
+        next.extend(answer);
+        next.extend(ids(100 + alignment as u32, 50));
+        turn(&control, &next, 8).await;
+        let old_cut = (full.len() - 1) / BT * BT;
+        let old_hit = (old_cut <= conversation.len()).then_some(old_cut as u64);
+        assert_eq!(
+            control.prefix_counters().0.hit_tokens,
+            old_hit.unwrap_or(0),
+            "alignment {alignment}: the full-prompt control reproduces the old boundary"
+        );
+
+        let cached = sched(on(), 8 * GIB);
+        let answer = chat_turn(&cached, &full, conversation.len(), 8).await;
+        let mut next = conversation.clone();
+        next.extend(answer);
+        next.extend(ids(100 + alignment as u32, 50));
+        let next_conversation_len = next.len();
+        next.extend(&suffix);
+        chat_turn(&cached, &next, next_conversation_len, 8).await;
+        let want = (conversation.len() / BT * BT) as u64;
+        let (c, _, _) = cached.prefix_counters();
+        assert_eq!(
+            (c.hits, c.adopted, c.hit_tokens),
+            (1, 1, want),
+            "alignment {alignment}: the next turn reuses only conversation tokens"
+        );
+    }
+}
+
 /// Two turns of a conversation: turn 2's prompt is turn 1's + its answer + a new message.
 async fn conversation(s: &Arc<Scheduler<Toy>>, p1: &[TokenId], extra: &[TokenId]) -> Vec<TokenId> {
     let a1 = turn(s, p1, 24).await;

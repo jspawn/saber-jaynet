@@ -176,8 +176,10 @@ fn rel(root: &Path, p: &Path) -> String {
         .into_owned()
 }
 
-fn hipcc(root: &Path, args: &[&str]) -> Result<Vec<u8>, String> {
-    let sh = root.join("tools").join("hipcc.sh");
+fn hipcc(root: &Path, args: &[&str], host: bool) -> Result<Vec<u8>, String> {
+    let sh = root
+        .join("tools")
+        .join(if host { "hipcc_native.sh" } else { "hipcc.sh" });
     let out = Command::new(&sh)
         .args(args)
         .current_dir(root)
@@ -185,7 +187,8 @@ fn hipcc(root: &Path, args: &[&str]) -> Result<Vec<u8>, String> {
         .map_err(|e| format!("{}: {e}", sh.display()))?;
     if !out.status.success() {
         return Err(format!(
-            "hipcc.sh {args:?} failed ({}):\n{}",
+            "{} {args:?} failed ({}):\n{}",
+            sh.file_name().unwrap_or_default().to_string_lossy(),
             out.status,
             String::from_utf8_lossy(&out.stderr)
         ));
@@ -197,11 +200,13 @@ fn main() {
     let mut args = std::env::args().skip(1);
     let mut arch = prebuilt::ARCH.to_owned();
     let mut out_dir: Option<PathBuf> = None;
+    let mut host = false;
     let mut stems: Vec<String> = Vec::new();
     while let Some(a) = args.next() {
         match a.as_str() {
             "--arch" => arch = args.next().expect("--arch needs a value"),
             "--out" => out_dir = Some(PathBuf::from(args.next().expect("--out needs a value"))),
+            "--host" => host = true,
             other => stems.push(other.to_owned()),
         }
     }
@@ -218,7 +223,7 @@ fn main() {
 
     let mut failed = false;
     for stem in &stems {
-        match build_one(&root, &hip, &out, stem, &arch) {
+        match build_one(&root, &hip, &out, stem, &arch, host) {
             Ok(msg) => println!("{msg}"),
             Err(e) => {
                 eprintln!("FAILED {stem}: {e}");
@@ -237,6 +242,7 @@ fn build_one(
     out: &Path,
     stem: &str,
     arch: &str,
+    host: bool,
 ) -> Result<String, String> {
     let src = ladder::resolve_in(hip, stem, arch)
         .ok_or_else(|| format!("no source for `{stem}` under {}", hip.display()))?;
@@ -251,7 +257,7 @@ fn build_one(
         .join(format!("{stem}.{arch}.i"));
     std::fs::create_dir_all(pp_path.parent().expect("parent")).map_err(|e| e.to_string())?;
     let pp_rel = rel(root, &pp_path);
-    hipcc(root, &[&src_rel, &pp_rel, "-E"])?;
+    hipcc(root, &[&src_rel, &pp_rel, "-E"], host)?;
     let extra = extra_flags(stem);
     let flags = if extra.is_empty() {
         FLAGS.to_owned()
@@ -269,7 +275,7 @@ fn build_one(
     if !extra.is_empty() {
         args.push(extra);
     }
-    hipcc(root, &args)?;
+    hipcc(root, &args, host)?;
     let blob = std::fs::read(&hsaco).map_err(|e| e.to_string())?;
 
     let m = Manifest::from_code_object(

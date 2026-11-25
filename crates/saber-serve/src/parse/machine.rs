@@ -107,15 +107,15 @@ fn is_tool_terminal(terminal: Terminal) -> bool {
     )
 }
 
-/// What plain (non-terminal) text means in each state. `ToolPreamble` and
-/// `ToolBetween` map to nothing, which is how stray text between the tags is dropped.
+/// What plain (non-terminal) text means in each state. `ToolPreamble` collects
+/// raw JSON calls; `ToolBetween` drops stray text between tags.
 fn content_event(state: ParserState) -> Option<EventType> {
     match state {
         ParserState::Content => Some(EventType::TextChunk),
         ParserState::Reasoning => Some(EventType::ReasoningChunk),
         ParserState::ToolName => Some(EventType::ToolName),
-        ParserState::ToolArgs => Some(EventType::ArgValueChunk),
-        ParserState::ToolPreamble | ParserState::ToolBetween => None,
+        ParserState::ToolArgs | ParserState::ToolPreamble => Some(EventType::ArgValueChunk),
+        ParserState::ToolBetween => None,
     }
 }
 

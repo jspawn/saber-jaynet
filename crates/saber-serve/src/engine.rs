@@ -292,6 +292,16 @@ pub enum EngineError {
 /// carries `finished`. Dropping the stream is not an abort — call [`Engine::abort`].
 pub trait Engine: Send + Sync + std::fmt::Debug + 'static {
     fn submit(&self, request: EngineRequest) -> Result<Submission, EngineError>;
+    /// A chat prompt whose conversation-only tokenization bounds its prefix-cache snapshot.
+    /// Engines without conversation-boundary support retain their normal submission behavior.
+    fn submit_with_conversation_len(
+        &self,
+        request: EngineRequest,
+        conversation_len: usize,
+    ) -> Result<Submission, EngineError> {
+        let _ = conversation_len;
+        self.submit(request)
+    }
     /// A request with images (D3). The default is the text-only engine's refusal, by name.
     fn submit_with_images(
         &self,
@@ -430,6 +440,7 @@ struct MockInner {
     accepted_per_pos: Vec<u64>,
     aborted: Vec<RequestId>,
     submitted: Vec<EngineRequest>,
+    conversation_lens: Vec<usize>,
     /// The scripted step gaps, as a step histogram (the queue wait is 0: the
     /// mock admits at submit).
     steps: crate::hist::StepHistograms,
@@ -498,12 +509,33 @@ impl MockEngine {
         self.inner.lock().expect("mock lock").submitted.clone()
     }
 
+    pub fn submitted_conversation_lens(&self) -> Vec<usize> {
+        self.inner
+            .lock()
+            .expect("mock lock")
+            .conversation_lens
+            .clone()
+    }
+
     pub fn aborted(&self) -> Vec<RequestId> {
         self.inner.lock().expect("mock lock").aborted.clone()
     }
 }
 
 impl Engine for MockEngine {
+    fn submit_with_conversation_len(
+        &self,
+        request: EngineRequest,
+        conversation_len: usize,
+    ) -> Result<Submission, EngineError> {
+        self.inner
+            .lock()
+            .expect("mock lock")
+            .conversation_lens
+            .push(conversation_len);
+        self.submit(request)
+    }
+
     /// The mock serves images: it records the batch and replays its script as for text.
     fn submit_with_images(
         &self,

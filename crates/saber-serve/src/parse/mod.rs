@@ -582,7 +582,7 @@ impl Qwen3Parser {
     // ── Argument conversion ──────────────────────────────────────────────────
 
     fn compute_arg_delta(&mut self, idx: usize) -> Option<String> {
-        if !STREAM_ARG_DELTAS {
+        if !STREAM_ARG_DELTAS || is_raw_json_body(&self.slots[idx].args) {
             return None;
         }
         let mut current_json = arg_converter(&self.slots[idx].args, true);
@@ -615,7 +615,9 @@ impl Qwen3Parser {
     }
 
     fn flush_arg_converter(&mut self, idx: usize) -> Option<String> {
-        let mut final_json = arg_converter(&self.slots[idx].args, false);
+        let raw_args = &self.slots[idx].args;
+        let mut final_json =
+            raw_json_args(raw_args).unwrap_or_else(|| arg_converter(raw_args, false));
         if !final_json.is_empty() {
             let name = self.slots[idx].name.clone();
             final_json = self.fix_arg_types(&final_json, &name);
@@ -675,7 +677,9 @@ impl Qwen3Parser {
             let raw_body = self.slots[idx].args.clone();
 
             let mut args_json;
-            if name.is_empty() && !raw_body.trim().is_empty() {
+            if let Some(extracted_args) = raw_json_args(&raw_body) {
+                args_json = extracted_args;
+            } else if name.is_empty() && !raw_body.trim().is_empty() {
                 let (extracted_name, extracted_args) = extract_name_and_args(&raw_body);
                 name = extracted_name;
                 args_json = extracted_args;
@@ -788,6 +792,18 @@ fn arg_converter(raw_args: &str, partial: bool) -> String {
 fn trim_wrapping_newlines(value: &str) -> &str {
     let value = value.strip_prefix('\n').unwrap_or(value);
     value.strip_suffix('\n').unwrap_or(value)
+}
+
+fn is_raw_json_body(raw_body: &str) -> bool {
+    raw_body.trim_start().starts_with('{')
+}
+
+fn raw_json_args(raw_body: &str) -> Option<String> {
+    if !is_raw_json_body(raw_body) {
+        return None;
+    }
+    let (name, args) = extract_name_and_args(raw_body);
+    (!name.is_empty()).then_some(args)
 }
 
 fn try_extract_name(args: &str) -> Option<String> {

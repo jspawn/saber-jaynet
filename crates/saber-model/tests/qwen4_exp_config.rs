@@ -178,6 +178,21 @@ fn prime_helper_matches_upstream_semantics() {
     assert_eq!(nth_prime_after(19_999_999, 1), 20_000_003);
 }
 
+#[test]
+fn quark_exclude_accepts_declared_nonlinear_modules() {
+    let mut v: Value = serde_json::from_str(QUARK).unwrap();
+    let exclude = v["quantization_config"]["exclude"].as_array_mut().unwrap();
+    for name in [
+        "model.language_model.layers.1.ple.ple_embedding.ngram_embedding.shard_0",
+        "model.language_model.layers.1.ple.ple_embedding.ngram_embedding.shard_127",
+        "model.visual.patch_embed.proj",
+        "model.visual.pos_embed",
+    ] {
+        exclude.push(Value::from(name));
+    }
+    parse(&v.to_string());
+}
+
 // ---- negative controls: each doctored file is refused, and the refusal names the field -----
 
 #[test]

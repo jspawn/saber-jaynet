@@ -384,13 +384,13 @@ __device__ __forceinline__ void recurrent_nq8(const RecArgs& a, const Nq8Args& t
 #define SGDN_REC_KERNEL(NAME, KIND, AB, NORM, VS)                                                              \
   extern "C" __global__ __launch_bounds__(256 / VS) void NAME(SGDN_REC_PARAMS) {                              \
     __shared__ float wsum[NORM ? 8 : 1];                                                                       \
-    sgdn::recurrent_rows<KIND, AB != 0, NORM != 0, VS, false>(SGDN_REC_ARGS, blockIdx.x, blockIdx.y,          \
-                                                              VS > 1 ? (int)blockIdx.z : 0, wsum);             \
+    sgdn::recurrent_rows<KIND, AB != 0, NORM != 0, VS, KIND == sgdn::kStateF16>(                              \
+      SGDN_REC_ARGS, blockIdx.x, blockIdx.y, VS > 1 ? (int)blockIdx.z : 0, wsum);                              \
   }
 
 // one fused symbol
 #define SGDN_FUSED_KERNEL(NAME, KIND, AB)                                                                      \
   extern "C" __global__ __launch_bounds__(256) void NAME(SGDN_FUSED_PARAMS) {                                 \
-    sgdn::fused_update<KIND, AB != 0, false>(SGDN_FUSED_ARGS);                                                 \
+    sgdn::fused_update<KIND, AB != 0, KIND == sgdn::kStateF16>(SGDN_FUSED_ARGS);                               \
   }
 

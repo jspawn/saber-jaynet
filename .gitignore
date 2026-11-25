@@ -1,5 +1,7 @@
 target/
 .cache/
+/AGENTS.md
+/HANDOFF.md
 
 *.log
 *.hsaco

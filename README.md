@@ -650,6 +650,26 @@ untouched (a CPU stream keeps 51.7 of 52 GB/s, against 32.4 beside the bounce co
   the bounce copy otherwise. It speeds up loads and reloads; the decode step path does not read
   from the drive.
 
+## Native host builds
+
+This fork also has direct host launchers; they do not use Docker or Podman. They need Rust, a ROCm 7.x runtime (default `/opt/rocm`, override with `ROCM_PATH`), and the shipped `prebuilt/gfx1201` code objects.
+
+```bash
+cargo build --release -p saber-cli
+./target/release/saber --help
+
+tools/fetch_packs.sh 27b-tp1                 # about 25 GB; use 27b for TP=2
+tools/serve_27b_native.sh --tp 1 --no-build --enable-prefix-caching on
+# Two cards: tools/serve_27b_native.sh --tp 2 --no-build
+
+tools/fetch_packs.sh flashnext               # about 70 GB of packs + 170 GB checkpoint
+tools/serve_flashnext_native.sh --no-build   # Flash-Next, TP=2 only
+```
+
+The native launchers build by default when `--no-build` is absent, accept the same engine options and environment defaults as their container counterparts, and run in the foreground (stop with Ctrl-C). For 27B TP=1, select the card with `DEVICE=1`; for TP=2, use `HIP_DEVICES=0,1`. Flash-Next uses `SABER_NVME` as the parent of `models/`, `saber-packs/`, and `saber-kv/`; on this checkout it is `/srv/saber-fork`. Its checkpoint paths in `manifest.json` and `ple/ple_index.json` must name that same location. Extra overrides include `SABER_BIN`, `SABER_PACKS`, `SABER_SHARED`, `HIP_LIB`, `HSA_LIB`, `TOKENIZER`, and `CHAT_TEMPLATE`. Make sure the selected cards are free first: the launchers do not stop JayNet or other GPU workloads.
+
+This fork also has a text-only Occamy TP2 preview. Its recommended configuration uses official FP8 routed experts with BF16 dense/shared weights and KV, all VRAM-resident, at up to 262,144 tokens. Optional official-head MTP supports exact single-slot greedy and target-first sampled serving, including penalties and logprobs; plain greedy is its measured speed case, while the new dense verifier is currently slower. See `STARTSTOP.md` for commands and `occamy-conversion.md` for implementation and validation status.
+
 ## Develop
 
 ```bash
@@ -658,8 +678,7 @@ tools/dev.sh cargo build --release -p saber-cli
 cargo fmt --all --check && cargo clippy --workspace --all-targets -- -D warnings
 ```
 
-`tools/dev.sh` and `tools/hipcc.sh` use podman or docker like the launchers. Host `cargo` is fine for pure-Rust unit tests; anything that touches HIP or a GPU goes through
-`tools/dev.sh`. Compile a kernel with `tools/hipcc.sh crates/saber-kernels/hip/<k>.hip out.hsaco`.
+Upstream's `tools/dev.sh` and `tools/hipcc.sh` use podman or docker; the native 27B launcher above does not. Host `cargo` is fine for pure-Rust unit tests and the native build. Compile a kernel in the container with `tools/hipcc.sh crates/saber-kernels/hip/<k>.hip out.hsaco`, or natively with `/opt/rocm/bin/hipcc --genco --offload-arch=gfx1201 -O3 kernel.hip -o kernel.hsaco`.
 `saber --help` lists the CLI: `serve`, `engine` (one-prompt gate with ms/step), `probe`, `gate`,
 `explain` and the per-feature gates.
 The console's browser app lives in `ui/src`; `tools/console/build_ui.sh` rebuilds `ui/dist` (a

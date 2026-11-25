@@ -1,0 +1,579 @@
+schema_version = 1
+plugin = "kolibri_spike"
+arch = "gfx1201"
+source = "crates/saber-kernels/hip/kolibri_spike.hip"
+source_sha256 = "0bc205d43c283718ce7adb3fc7f65e7a3dcae6a67f4a6324be40d408ac1b0743"
+flags = "--genco --offload-arch=gfx1201 -O3"
+build_hash = "527263ad8cafa62501cc5bd402db4bfa11cd86d9173354156ced4ee90865e3e2"
+hsaco = "kolibri_spike.hsaco"
+hsaco_sha256 = "8c1f85a0a7d8dbd09d0133a09022dd2754da938e50f9190b388c1dffb558f20b"
+
+[[kernel]]
+name = "kolibri_accumulate_bf16"
+symbol = "kolibri_accumulate_bf16.kd"
+kernarg_segment_size = 24
+kernarg_segment_align = 8
+group_segment_fixed_size = 0
+private_segment_fixed_size = 0
+vgpr_count = 6
+sgpr_count = 10
+wavefront_size = 32
+max_flat_workgroup_size = 256
+
+[[kernel.arg]]
+offset = 0
+size = 8
+value_kind = "global_buffer"
+name = "accumulated"
+
+[[kernel.arg]]
+offset = 8
+size = 8
+value_kind = "global_buffer"
+name = "input"
+
+[[kernel.arg]]
+offset = 16
+size = 4
+value_kind = "by_value"
+name = "scale"
+
+[[kernel.arg]]
+offset = 20
+size = 4
+value_kind = "by_value"
+name = "elements"
+
+[[kernel]]
+name = "kolibri_attn_decode_partial_h128_fp8"
+symbol = "kolibri_attn_decode_partial_h128_fp8.kd"
+kernarg_segment_size = 84
+kernarg_segment_align = 8
+group_segment_fixed_size = 0
+private_segment_fixed_size = 0
+vgpr_count = 32
+sgpr_count = 34
+wavefront_size = 32
+max_flat_workgroup_size = 32
+
+[[kernel.arg]]
+offset = 0
+size = 8
+value_kind = "global_buffer"
+name = "q"
+
+[[kernel.arg]]
+offset = 8
+size = 8
+value_kind = "global_buffer"
+name = "kc"
+
+[[kernel.arg]]
+offset = 16
+size = 8
+value_kind = "global_buffer"
+name = "vc"
+
+[[kernel.arg]]
+offset = 24
+size = 8
+value_kind = "global_buffer"
+name = "kscales"
+
+[[kernel.arg]]
+offset = 32
+size = 8
+value_kind = "global_buffer"
+name = "vscales"
+
+[[kernel.arg]]
+offset = 40
+size = 8
+value_kind = "global_buffer"
+name = "partial"
+
+[[kernel.arg]]
+offset = 48
+size = 8
+value_kind = "global_buffer"
+name = "partial_ml"
+
+[[kernel.arg]]
+offset = 56
+size = 4
+value_kind = "by_value"
+name = "rows"
+
+[[kernel.arg]]
+offset = 60
+size = 4
+value_kind = "by_value"
+name = "nq"
+
+[[kernel.arg]]
+offset = 64
+size = 4
+value_kind = "by_value"
+name = "nkv"
+
+[[kernel.arg]]
+offset = 68
+size = 4
+value_kind = "by_value"
+name = "start_pos"
+
+[[kernel.arg]]
+offset = 72
+size = 4
+value_kind = "by_value"
+name = "window"
+
+[[kernel.arg]]
+offset = 76
+size = 4
+value_kind = "by_value"
+name = "cache_capacity"
+
+[[kernel.arg]]
+offset = 80
+size = 4
+value_kind = "by_value"
+name = "splits"
+
+[[kernel]]
+name = "kolibri_attn_decode_reduce_h128"
+symbol = "kolibri_attn_decode_reduce_h128.kd"
+kernarg_segment_size = 36
+kernarg_segment_align = 8
+group_segment_fixed_size = 0
+private_segment_fixed_size = 0
+vgpr_count = 27
+sgpr_count = 22
+wavefront_size = 32
+max_flat_workgroup_size = 32
+
+[[kernel.arg]]
+offset = 0
+size = 8
+value_kind = "global_buffer"
+name = "partial"
+
+[[kernel.arg]]
+offset = 8
+size = 8
+value_kind = "global_buffer"
+name = "partial_ml"
+
+[[kernel.arg]]
+offset = 16
+size = 8
+value_kind = "global_buffer"
+name = "output"
+
+[[kernel.arg]]
+offset = 24
+size = 4
+value_kind = "by_value"
+name = "rows"
+
+[[kernel.arg]]
+offset = 28
+size = 4
+value_kind = "by_value"
+name = "nq"
+
+[[kernel.arg]]
+offset = 32
+size = 4
+value_kind = "by_value"
+name = "splits"
+
+[[kernel]]
+name = "kolibri_combine_bf16"
+symbol = "kolibri_combine_bf16.kd"
+kernarg_segment_size = 52
+kernarg_segment_align = 8
+group_segment_fixed_size = 0
+private_segment_fixed_size = 0
+vgpr_count = 10
+sgpr_count = 26
+wavefront_size = 32
+max_flat_workgroup_size = 256
+
+[[kernel.arg]]
+offset = 0
+size = 8
+value_kind = "global_buffer"
+name = "y"
+
+[[kernel.arg]]
+offset = 8
+size = 8
+value_kind = "global_buffer"
+name = "weights"
+
+[[kernel.arg]]
+offset = 16
+size = 8
+value_kind = "global_buffer"
+name = "route_pos"
+
+[[kernel.arg]]
+offset = 24
+size = 8
+value_kind = "global_buffer"
+name = "meta"
+
+[[kernel.arg]]
+offset = 32
+size = 8
+value_kind = "global_buffer"
+name = "output"
+
+[[kernel.arg]]
+offset = 40
+size = 4
+value_kind = "by_value"
+name = "rows"
+
+[[kernel.arg]]
+offset = 44
+size = 4
+value_kind = "by_value"
+name = "hidden"
+
+[[kernel.arg]]
+offset = 48
+size = 4
+value_kind = "by_value"
+name = "top_k"
+
+[[kernel]]
+name = "kolibri_quant_bf16"
+symbol = "kolibri_quant_bf16.kd"
+kernarg_segment_size = 32
+kernarg_segment_align = 8
+group_segment_fixed_size = 1024
+private_segment_fixed_size = 0
+vgpr_count = 11
+sgpr_count = 14
+wavefront_size = 32
+max_flat_workgroup_size = 256
+
+[[kernel.arg]]
+offset = 0
+size = 8
+value_kind = "global_buffer"
+name = "input"
+
+[[kernel.arg]]
+offset = 8
+size = 8
+value_kind = "global_buffer"
+name = "output"
+
+[[kernel.arg]]
+offset = 16
+size = 8
+value_kind = "global_buffer"
+name = "scales"
+
+[[kernel.arg]]
+offset = 24
+size = 4
+value_kind = "by_value"
+name = "rows"
+
+[[kernel.arg]]
+offset = 28
+size = 4
+value_kind = "by_value"
+name = "hidden"
+
+[[kernel]]
+name = "kolibri_route_bf16"
+symbol = "kolibri_route_bf16.kd"
+kernarg_segment_size = 112
+kernarg_segment_align = 8
+group_segment_fixed_size = 30736
+private_segment_fixed_size = 0
+vgpr_count = 20
+sgpr_count = 41
+wavefront_size = 32
+max_flat_workgroup_size = 256
+
+[[kernel.arg]]
+offset = 0
+size = 8
+value_kind = "global_buffer"
+name = "input"
+
+[[kernel.arg]]
+offset = 8
+size = 8
+value_kind = "global_buffer"
+name = "weight"
+
+[[kernel.arg]]
+offset = 16
+size = 8
+value_kind = "global_buffer"
+name = "bias"
+
+[[kernel.arg]]
+offset = 24
+size = 8
+value_kind = "global_buffer"
+name = "ids"
+
+[[kernel.arg]]
+offset = 32
+size = 8
+value_kind = "global_buffer"
+name = "weights"
+
+[[kernel.arg]]
+offset = 40
+size = 8
+value_kind = "global_buffer"
+name = "route_pos"
+
+[[kernel.arg]]
+offset = 48
+size = 8
+value_kind = "global_buffer"
+name = "row_tok"
+
+[[kernel.arg]]
+offset = 56
+size = 8
+value_kind = "global_buffer"
+name = "tile_expert"
+
+[[kernel.arg]]
+offset = 64
+size = 8
+value_kind = "global_buffer"
+name = "tile_row0"
+
+[[kernel.arg]]
+offset = 72
+size = 8
+value_kind = "global_buffer"
+name = "tile_rows"
+
+[[kernel.arg]]
+offset = 80
+size = 8
+value_kind = "global_buffer"
+name = "expert_cnt"
+
+[[kernel.arg]]
+offset = 88
+size = 8
+value_kind = "global_buffer"
+name = "meta"
+
+[[kernel.arg]]
+offset = 96
+size = 4
+value_kind = "by_value"
+name = "rows"
+
+[[kernel.arg]]
+offset = 100
+size = 4
+value_kind = "by_value"
+name = "hidden"
+
+[[kernel.arg]]
+offset = 104
+size = 4
+value_kind = "by_value"
+name = "experts"
+
+[[kernel.arg]]
+offset = 108
+size = 4
+value_kind = "by_value"
+name = "top_k"
+
+[[kernel]]
+name = "kolibri_router_bf16"
+symbol = "kolibri_router_bf16.kd"
+kernarg_segment_size = 56
+kernarg_segment_align = 8
+group_segment_fixed_size = 1920
+private_segment_fixed_size = 0
+vgpr_count = 11
+sgpr_count = 45
+wavefront_size = 32
+max_flat_workgroup_size = 256
+
+[[kernel.arg]]
+offset = 0
+size = 8
+value_kind = "global_buffer"
+name = "input"
+
+[[kernel.arg]]
+offset = 8
+size = 8
+value_kind = "global_buffer"
+name = "weight"
+
+[[kernel.arg]]
+offset = 16
+size = 8
+value_kind = "global_buffer"
+name = "bias"
+
+[[kernel.arg]]
+offset = 24
+size = 8
+value_kind = "global_buffer"
+name = "ids"
+
+[[kernel.arg]]
+offset = 32
+size = 8
+value_kind = "global_buffer"
+name = "weights"
+
+[[kernel.arg]]
+offset = 40
+size = 4
+value_kind = "by_value"
+name = "rows"
+
+[[kernel.arg]]
+offset = 44
+size = 4
+value_kind = "by_value"
+name = "hidden"
+
+[[kernel.arg]]
+offset = 48
+size = 4
+value_kind = "by_value"
+name = "experts"
+
+[[kernel.arg]]
+offset = 52
+size = 4
+value_kind = "by_value"
+name = "top_k"
+
+[[kernel]]
+name = "kolibri_sort_top6"
+symbol = "kolibri_sort_top6.kd"
+kernarg_segment_size = 76
+kernarg_segment_align = 8
+group_segment_fixed_size = 6160
+private_segment_fixed_size = 0
+vgpr_count = 18
+sgpr_count = 43
+wavefront_size = 32
+max_flat_workgroup_size = 256
+
+[[kernel.arg]]
+offset = 0
+size = 8
+value_kind = "global_buffer"
+name = "ids"
+
+[[kernel.arg]]
+offset = 8
+size = 8
+value_kind = "global_buffer"
+name = "route_pos"
+
+[[kernel.arg]]
+offset = 16
+size = 8
+value_kind = "global_buffer"
+name = "row_tok"
+
+[[kernel.arg]]
+offset = 24
+size = 8
+value_kind = "global_buffer"
+name = "tile_expert"
+
+[[kernel.arg]]
+offset = 32
+size = 8
+value_kind = "global_buffer"
+name = "tile_row0"
+
+[[kernel.arg]]
+offset = 40
+size = 8
+value_kind = "global_buffer"
+name = "tile_rows"
+
+[[kernel.arg]]
+offset = 48
+size = 8
+value_kind = "global_buffer"
+name = "expert_cnt"
+
+[[kernel.arg]]
+offset = 56
+size = 8
+value_kind = "global_buffer"
+name = "meta"
+
+[[kernel.arg]]
+offset = 64
+size = 4
+value_kind = "by_value"
+name = "rows"
+
+[[kernel.arg]]
+offset = 68
+size = 4
+value_kind = "by_value"
+name = "experts"
+
+[[kernel.arg]]
+offset = 72
+size = 4
+value_kind = "by_value"
+name = "top_k"
+
+[[kernel]]
+name = "kolibri_swiglu_bf16"
+symbol = "kolibri_swiglu_bf16.kd"
+kernarg_segment_size = 28
+kernarg_segment_align = 8
+group_segment_fixed_size = 0
+private_segment_fixed_size = 0
+vgpr_count = 10
+sgpr_count = 10
+wavefront_size = 32
+max_flat_workgroup_size = 256
+
+[[kernel.arg]]
+offset = 0
+size = 8
+value_kind = "global_buffer"
+name = "gate"
+
+[[kernel.arg]]
+offset = 8
+size = 8
+value_kind = "global_buffer"
+name = "up"
+
+[[kernel.arg]]
+offset = 16
+size = 8
+value_kind = "global_buffer"
+name = "output"
+
+[[kernel.arg]]
+offset = 24
+size = 4
+value_kind = "by_value"
+name = "elements"

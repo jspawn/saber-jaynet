@@ -13,13 +13,16 @@
 //! id; an adoption restores it into the new sequence's own slot set. A retained entry never pins
 //! a live state slot set.
 //!
-//! **The cached position** is the prompt's last whole-block boundary STRICTLY before its end,
-//! `a = ((len - 1) / block) * block`: block-aligned so the pages are whole (a partial block is
-//! never shared, the fork's law), and strictly before the end so a hit always re-prefills at
-//! least one token — the row that samples. The scheduler cuts the prompt's prefill at `a` (one
-//! extra small chunk at the end), which is the only schedule change the cache makes, and the
-//! snapshot is taken after that chunk. The reference server's align mode does the same: states kept at
-//! block-aligned positions of the computed tokens.
+//! **The cached position** is a whole-block boundary strictly before the prompt's end. A plain
+//! prompt uses `a = ((len - 1) / block) * block`. A generation-suffixed chat prompt also carries
+//! its conversation-only token length, rendered without `add_generation_prompt`, and uses
+//! `a = (conversation_len / block) * block`; the transient assistant-generation suffix therefore
+//! never enters a prefix the next conversation turn must match. Block alignment keeps pages whole
+//! (a partial block is never shared, the fork's law), and a hit always re-prefills at least one
+//! token — the row that samples. The scheduler cuts the prompt's prefill at `a` (one extra small
+//! chunk at the end), which is the only schedule change the cache makes, and the snapshot is taken
+//! after that chunk. The reference server's align mode keeps states at block-aligned positions of
+//! the computed tokens.
 //!
 //! **The cut lineage** (2026-11-12): an entry's state is the state of a prefill whose
 //! chunks RESTARTED at every cache cut its lineage passed through — the prefix it adopted (or, in
@@ -228,12 +231,25 @@ impl PrefixCache {
     /// boundary strictly before its end, when that is at least `min_tokens`.
     #[must_use]
     pub fn snapshot_point(&self, prompt_len: usize) -> Option<u32> {
-        if !self.policy.enabled || prompt_len < 2 {
+        self.conversation_snapshot_point(prompt_len, prompt_len.saturating_sub(1))
+    }
+
+    /// The last whole-block boundary in a chat prompt's conversation, before its generation
+    /// suffix. `conversation_len` comes from rendering the same request without
+    /// `add_generation_prompt`.
+    #[must_use]
+    pub fn conversation_snapshot_point(
+        &self,
+        prompt_len: usize,
+        conversation_len: usize,
+    ) -> Option<u32> {
+        if !self.policy.enabled || conversation_len > prompt_len {
             return None;
         }
         let bt = self.block_tokens as usize;
-        let a = ((prompt_len - 1) / bt) * bt;
-        (a > 0 && a >= self.policy.min_tokens as usize).then(|| u32::try_from(a).ok())?
+        let a = (conversation_len / bt) * bt;
+        (a > 0 && a < prompt_len && a >= self.policy.min_tokens as usize)
+            .then(|| u32::try_from(a).ok())?
     }
 
     /// The chained keys of `prompt`'s whole blocks below its last token.
@@ -406,6 +422,19 @@ mod tests {
         assert_eq!(c.snapshot_point(16), None);
         assert_eq!(
             PrefixCache::new(PrefixCachePolicy::OFF, 16).snapshot_point(4096),
+            None
+        );
+    }
+
+    #[test]
+    fn a_chat_snapshot_uses_the_conversation_before_its_generation_suffix() {
+        let c = cache();
+        assert_eq!(c.conversation_snapshot_point(61, 48), Some(48));
+        assert_eq!(c.conversation_snapshot_point(61, 47), Some(32));
+        assert_eq!(c.conversation_snapshot_point(48, 48), None);
+        assert_eq!(c.conversation_snapshot_point(48, 49), None);
+        assert_eq!(
+            PrefixCache::new(PrefixCachePolicy::OFF, 16).conversation_snapshot_point(61, 48),
             None
         );
     }
