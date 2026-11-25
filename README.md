@@ -1,4 +1,33 @@
-# Saber
+# Saber JayNet
+
+A JayNet-oriented fork of [GGZ14's Saber Engine](https://github.com/GGZ14/saber-engine).
+
+**Thank you to GGZ14 and all Saber contributors for designing, building, and publishing the original engine.** This fork keeps the upstream implementation and its documentation available while adding host-native operation, JayNet-facing serving behavior, and several experimental model ports. It is not an official GGZ14 release.
+
+## What this fork adds
+
+- **Native ROCm builds and serving:** build and run directly on Linux with Cargo, a host ROCm runtime, and the shipped `gfx1201` code objects. Docker and Podman are not required by the `tools/*_native.sh` launchers; the upstream container workflow remains available.
+- **JayNet integration:** foreground launchers, loopback serving where supported, coordinated TP2 shutdown, health/model/metrics endpoints, OpenAI-compatible tool calling and tool-result history, streaming, usage accounting, and cached-token telemetry. The JayNet preset and process-manager glue lives in the separate JayNet development tree.
+- **Model and pack tooling:** additional configuration parsers, pack planners/builders, model executors, persistent servers, HIP kernels, and prebuilt GPU code objects for the models below.
+- **Serving and caching improvements:** Qwen3 reasoning/tool parsing changes, sampled speculative-verification parity, penalty/logprob support in the model-specific servers, prefix-cache work, and DaisyRose trailing-system and conversation-boundary snapshot handling.
+- **Native kernel development:** the `saber-kbuild --host` path and model-specific numerical probes, parity harnesses, and performance diagnostics.
+
+The additional ports are experimental, text-only, and primarily target two AMD Radeon AI PRO R9700 GPUs. Model weights and packs are not bundled. Host builds and the selected Rust/Python test suites pass; not every model and configuration has completed GPU acceptance from the unified tree.
+
+## Additional experimental models
+
+| Model | Support in this fork | Current scope |
+|---|---|---|
+| [DaisyRose-27B](https://huggingface.co/RadixArk/DaisyRose-27B) | TP2 serving from MXFP4 packs with BF16 heads, optional DFlash2, a trailing-system chat template, and conversation-aware prefix snapshots | Target-only and DFlash configurations; DFlash and long-context JayNet acceptance remain experimental |
+| [Ripple-65B-Preview](https://huggingface.co/ricursiveAI/Ripple-65B-Preview) + [DFlash2](https://huggingface.co/ricursiveAI/Ripple-65B-Preview-DFlash2) | TP2 target/drafter execution, FP8 KV, sampling/logprobs, OpenAI tool history, streaming, and conversation-prefix reuse | 131,072-token configured maximum; NVFP4-to-MXFP4 target conversion and BF16-to-FP8 drafter conversion are lossy |
+| [Kolibri-1](https://huggingface.co/Aleph-Alpha/Kolibri-1) | TP2 model/config support, pack planning, HIP attention kernels, and a persistent OpenAI-compatible server | Experimental MXFP4 port with a 262,144-token configured context |
+| [Occamy 1.0](https://huggingface.co/Accio-Lab/occamy-1.0) | TP2 FP8/BF16 execution, optional official MTP, sampling/logprobs, tool parsing, and device-resident prefix caching | Research preview; our serving experiment was slower than llama.cpp at comparable quality and is not the recommended production path |
+
+See [STARTSTOP.md](STARTSTOP.md) for native startup, shutdown, and launcher parameters, [RIPPLE.md](RIPPLE.md) for Ripple's detailed limits and measurements, and [occamy-conversion.md](occamy-conversion.md) for the Occamy implementation history. The native-host section near the end of this README covers the established 27B and Flash-Next launchers.
+
+The sections below retain the upstream Saber overview and operating documentation, including the original container-based workflow.
+
+## Upstream Saber overview
 
 A Rust inference engine for the Qwen3.8 family on AMD Radeon AI PRO R9700 (gfx1201 / RDNA4).
 Kernels ship as HIP code objects plus a manifest, the host owns every launch decision, and one
